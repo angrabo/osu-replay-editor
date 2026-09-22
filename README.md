@@ -1,8 +1,21 @@
 # osu! Replay Editor
 
+[![Latest release](https://img.shields.io/github/v/release/angrabo/osu-replay-editor?label=release)](https://github.com/angrabo/osu-replay-editor/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows-0078D6)](#requirements-windows)
+[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB)](https://tauri.app)
+
 A Windows desktop editor for osu!standard replays: import one or more `.osr` files,
-edit cursor movement and key presses on a timeline, resimulate the score against
-osu!(lazer) scoring rules, and save everything as a project you can reopen later.
+edit cursor movement and key presses on a timeline, resimulate the score under
+stable (v1/v2) or lazer scoring, and save everything as a project you can reopen
+later.
+
+> [!WARNING]
+> This tool is built for **replaying, analyzing, and cleaning up your own
+> gameplay** — trimming a misclick, fixing a dropped combo on a personal FC
+> attempt, or just studying a play frame by frame. It is **not** meant for
+> submitting edited replays as legitimate scores, and the author does not
+> condone or support using it to cheat, forge, or misrepresent gameplay. Doing
+> so is on you, not this project.
 
 ## Features
 
@@ -16,11 +29,17 @@ osu!(lazer) scoring rules, and save everything as a project you can reopen later
 - **Beatmap viewer** — a PixiJS-rendered playfield with circles, sliders,
   spinners, hidden/approach fades, and cursor trails, driven by the same clock as
   the timeline.
-- **Score resimulation** — recompute accuracy, combo, and judgements after an
-  edit, matching osu!(lazer) slider and scoring behaviour.
+- **Score resimulation, three ways** — recompute accuracy, combo, and judgements
+  after an edit under **stable ScoreV1**, **stable ScoreV2**, or **lazer**
+  scoring, matching each ruleset's own slider and judgement behaviour.
 - **osu! account integration** — sign in to resolve and download the exact
   matching beatmap difficulty for an imported replay, with cached beatmapsets for
   offline reuse.
+- **Explorer** — replays grouped by beatmap, a searchable hit-object list with a
+  hover preview of the object and cursor pattern, and a warning icon on any map
+  that failed to resolve.
+- **In-app changelog & updater** — Settings → Check for updates pulls release
+  notes straight from GitHub and asks for confirmation before installing.
 
 ## Architecture
 
