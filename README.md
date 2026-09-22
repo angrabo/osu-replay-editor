@@ -63,16 +63,11 @@ npm run dev
 starts Vite, and launches the Tauri window. The first Rust build can take a few
 minutes.
 
-osu! OAuth credentials can be provided either as environment variables or in a
-local config file (never commit real values):
-
-```powershell
-$env:OSU_CLIENT_ID = '<client id>'
-$env:OSU_CLIENT_SECRET = '<client secret>'
-```
-
-or copy `app.config.example.json` to `app.config.json` and fill in `osu.clientId`
-/ `osu.clientSecret`.
+`npm install` creates `app.config.json` from `app.config.example.json` if it
+doesn't exist yet. Fill in `osu.clientId`/`osu.clientSecret` there, or set
+`OSU_CLIENT_ID`/`OSU_CLIENT_SECRET` in the environment instead, to sign in with
+your own osu! OAuth client. Released builds get real values baked in by the
+release workflow from repository variables — see `.github/workflows/release.yml`.
 
 ### Other useful commands
 

@@ -3,10 +3,9 @@ using System.Text.Json;
 namespace ReplayEditor.Api.Sessions;
 
 /// <summary>
-/// Resolves the osu! OAuth client id/secret: environment variables first (CI/production), then
-/// app.config.json (walked up from the executable directory, since the sidecar runs from a
-/// different folder in dev vs. a packaged build) so contributors can configure credentials
-/// without exporting environment variables.
+/// Resolves the osu! OAuth client id/secret: environment variables first (set at build time by
+/// the release workflow, baked into app.config.json so the shipped app still has them at
+/// runtime), falling back to a local app.config.json for contributors who want to override it.
 /// </summary>
 internal static class OsuClientCredentials
 {
@@ -60,6 +59,10 @@ internal static class OsuClientCredentials
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         for (var depth = 0; directory is not null && depth < 8; depth++, directory = directory.Parent)
+        {
             yield return Path.Combine(directory.FullName, "app.config.json");
+            // Tauri bundles resources under a "resources" folder next to the executable.
+            yield return Path.Combine(directory.FullName, "resources", "app.config.json");
+        }
     }
 }

@@ -4,9 +4,11 @@
   "version": "0.1.0",
   "workspaces": ["apps/desktop", "packages/beatmap-viewer"],
   "scripts": {
+    "postinstall": "node scripts/ensure-app-config.mjs",
     "dev": "powershell -ExecutionPolicy Bypass -File scripts/dev.ps1",
     "build": "powershell -ExecutionPolicy Bypass -File scripts/build.ps1",
     "sidecar:build": "powershell -ExecutionPolicy Bypass -File scripts/prepare-sidecar.ps1",
+    "release": "powershell -ExecutionPolicy Bypass -File scripts/release.ps1",
     "ui:dev": "npm run dev --workspace @ore/desktop",
     "ui:build": "npm run build --workspace @ore/desktop",
     "check": "npm run check --workspace @ore/desktop",

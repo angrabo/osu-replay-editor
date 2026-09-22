@@ -24,13 +24,16 @@
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
     "externalBin": ["binaries/replay-editor-sidecar"],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "resources": {
+      "../../../app.config.json": "app.config.json"
+    }
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI1N0M1QkE4RTY1ODFBMUEKUldRYUdsam1xRnQ4SlFQVFpXV3B0Y1B2eDFlNXU2QkpqR0pEVmZlWm9BT1p6dGg4L2dnQ2JLM2kK",
       "endpoints": [
-        "https://github.com/OWNER/REPO/releases/latest/download/latest.json"
+        "https://github.com/angrabo/osu-replay-editor/releases/latest/download/latest.json"
       ]
     }
   }

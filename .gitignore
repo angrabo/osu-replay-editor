@@ -1,7 +1,4 @@
 # Secrets / local config
-.env
-.env.*
-!.env.example
 app.config.json
 !app.config.example.json
 updater-signing-key.pem*
@@ -44,3 +41,5 @@ Desktop.ini
 *.swp
 *.swo
 .vs/
+.idea/
+.claude/
