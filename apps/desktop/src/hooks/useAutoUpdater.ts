@@ -14,6 +14,7 @@ export type UpdateCheckResult = 'idle' | 'checking' | 'up-to-date' | 'error';
 export function useAutoUpdater() {
   const [pendingUpdate, setPendingUpdate] = useState<PendingUpdate | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
   const [checkResult, setCheckResult] = useState<UpdateCheckResult>('idle');
   const [updateHandle, setUpdateHandle] = useState<Update | null>(null);
 
@@ -48,6 +49,7 @@ export function useAutoUpdater() {
   const install = () => {
     if (!updateHandle) return;
     setInstalling(true);
+    setInstallError(null);
     void (async () => {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
@@ -57,13 +59,18 @@ export function useAutoUpdater() {
         await invoke('stop_sidecar_for_update');
         await updateHandle.downloadAndInstall();
         await relaunch();
-      } catch {
+      } catch (error) {
+        console.error('Update install failed:', error);
+        setInstallError(error instanceof Error ? error.message : String(error));
         setInstalling(false);
       }
     })();
   };
 
-  const dismiss = () => setPendingUpdate(null);
+  const dismiss = () => {
+    setPendingUpdate(null);
+    setInstallError(null);
+  };
 
-  return { pendingUpdate, installing, install, dismiss, checkNow, checkResult };
+  return { pendingUpdate, installing, installError, install, dismiss, checkNow, checkResult };
 }

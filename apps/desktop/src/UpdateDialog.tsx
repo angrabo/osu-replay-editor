@@ -3,11 +3,13 @@ import type { PendingUpdate } from './hooks/useAutoUpdater';
 export function UpdateDialog({
   update,
   installing,
+  installError,
   onInstall,
   onDismiss,
 }: {
   update: PendingUpdate;
   installing: boolean;
+  installError: string | null;
   onInstall: () => void;
   onDismiss: () => void;
 }) {
@@ -26,6 +28,11 @@ export function UpdateDialog({
           )}
         </div>
         {update.body && <p style={{ whiteSpace: 'pre-wrap' }}>{update.body}</p>}
+        {installError && (
+          <p className="map-flow-message" role="alert" style={{ color: '#ff8994' }}>
+            Update failed: {installError}
+          </p>
+        )}
         <div className="map-flow-actions">
           <button className="map-flow-primary" disabled={installing} onClick={onInstall}>
             <span>

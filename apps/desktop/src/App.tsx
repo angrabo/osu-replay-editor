@@ -262,7 +262,7 @@ export default function App() {
       });
   };
   useKeyboardShortcuts({ openAcquisition, setSettingsOpen, undo, redo, setPlaying });
-  const { pendingUpdate, installing, install, dismiss, checkNow, checkResult } = useAutoUpdater();
+  const { pendingUpdate, installing, installError, install, dismiss, checkNow, checkResult } = useAutoUpdater();
 
   const layoutStyle = {
     '--left-width': `${leftWidth}px`,
@@ -409,7 +409,13 @@ export default function App() {
       )}
       {changelogOpen && <ChangelogDialog onClose={() => setChangelogOpen(false)} />}
       {pendingUpdate && (
-        <UpdateDialog update={pendingUpdate} installing={installing} onInstall={install} onDismiss={dismiss} />
+        <UpdateDialog
+          update={pendingUpdate}
+          installing={installing}
+          installError={installError}
+          onInstall={install}
+          onDismiss={dismiss}
+        />
       )}
       <input
         ref={projectFileInputRef}
