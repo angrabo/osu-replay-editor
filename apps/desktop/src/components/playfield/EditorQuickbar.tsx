@@ -97,13 +97,14 @@ export function EditorQuickbar() {
               <label>
                 <span>Radius</span>
                 <input
-                  type="number"
+                  type="range"
                   min="4"
                   max="200"
+                  step="2"
                   value={brushRadiusPx}
                   onChange={(event) => setBrushRadiusPx(Number(event.target.value) || 4)}
                 />
-                <span>px</span>
+                <output>{brushRadiusPx} px</output>
               </label>
             </div>
           </div>

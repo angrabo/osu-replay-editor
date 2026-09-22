@@ -3,7 +3,7 @@ name: release
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
 
 jobs:
   release:
@@ -19,7 +19,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: '10.0.x'
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -57,9 +57,41 @@ jobs:
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}
-          releaseName: "osu! Replay Editor ${{ github.ref_name }}"
+          releaseName: 'osu! Replay Editor ${{ github.ref_name }}'
           releaseDraft: true
           prerelease: false
+
+      - name: Build and upload portable ZIP
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $targetDir = 'apps/desktop/src-tauri/target/release'
+          $app = Join-Path $targetDir 'osu-replay-editor.exe'
+          if (-not (Test-Path -LiteralPath $app)) { throw "Portable app executable not found at $app" }
+
+          $sidecar = Get-ChildItem -Path $targetDir -Filter 'replay-editor-sidecar*.exe' | Select-Object -First 1
+          if (-not $sidecar) {
+            $sidecar = Get-ChildItem -Path 'apps/desktop/src-tauri/binaries' -Filter 'replay-editor-sidecar*.exe' | Select-Object -First 1
+          }
+          if (-not $sidecar) { throw 'Portable sidecar executable was not produced.' }
+
+          $tag = '${{ github.ref_name }}'
+          $portableName = "osu-replay-editor-$tag-windows-x64-portable"
+          $portableDir = Join-Path $env:RUNNER_TEMP $portableName
+          New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
+          Copy-Item -LiteralPath $app -Destination $portableDir
+          Copy-Item -LiteralPath $sidecar.FullName -Destination $portableDir
+          @'
+          osu! Replay Editor portable for Windows x64
+
+          Run osu-replay-editor.exe. Keep the sidecar executable in the same directory.
+          Microsoft Edge WebView2 Runtime is required.
+          '@ | Set-Content -LiteralPath (Join-Path $portableDir 'README.txt') -Encoding utf8
+
+          $zip = Join-Path $env:RUNNER_TEMP "$portableName.zip"
+          Compress-Archive -Path (Join-Path $portableDir '*') -DestinationPath $zip -CompressionLevel Optimal
+          gh release upload $tag $zip --clobber --repo ${{ github.repository }}
 
       # tauri-action's built-in includeUpdaterJson doesn't reliably emit latest.json for the
       # NSIS target (it looks for a *.nsis.zip.sig, but Tauri 2 signs the setup.exe directly) —

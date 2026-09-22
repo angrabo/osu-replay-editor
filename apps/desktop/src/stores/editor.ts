@@ -191,6 +191,7 @@ export type EditorState = {
   clipboardMode: ClipboardMode;
   lastEditMessage: string;
   selectedCursorFrameMs: number | null;
+  selectedCursorFrameTimes: number[];
   inputKey: InputKey;
   inputDragMode: InputDragMode;
   filesTab: 'objects' | 'replay';
@@ -253,7 +254,7 @@ export type EditorState = {
   copySelectedInputs: () => void;
   setClipboardMode: (mode: ClipboardMode) => void;
   pasteInputs: (inPlace?: boolean, atTimeMs?: number, replaceSelection?: boolean) => void;
-  selectCursorFrame: (timeMs: number | null) => void;
+  selectCursorFrame: (timeMs: number | null, additive?: boolean) => void;
   setCursorFramePosition: (trackId: string, timeMs: number, x: number, y: number) => void;
   insertCursorFrame: (trackId: string, timeMs: number, x: number, y: number) => void;
   deleteCursorFrame: (trackId: string, timeMs: number) => void;
@@ -269,6 +270,7 @@ export type EditorState = {
     deltaY: number,
     minMs: number,
     maxMs: number,
+    selectedFrameTimes?: number[],
   ) => void;
   interpolateCursorRange: (trackId: string, startTime: number, endTime: number) => void;
   smoothCursorRange: (trackId: string, startTime: number, endTime: number) => void;
@@ -744,6 +746,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   clipboardMode: 'inputs',
   lastEditMessage: '',
   selectedCursorFrameMs: null,
+  selectedCursorFrameTimes: [],
   inputKey: 'M1',
   inputDragMode: 'free',
   filesTab: 'replay',
@@ -811,6 +814,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       inputClipboard: null,
       lastEditMessage: '',
       selectedCursorFrameMs: null,
+      selectedCursorFrameTimes: [],
       undoStack: [],
       redoStack: [],
       simulationByTrack: {},
@@ -846,6 +850,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         inputClipboard: null,
         lastEditMessage: `Loaded ${promoted.length} replay${promoted.length === 1 ? '' : 's'} for this map.`,
         selectedCursorFrameMs: null,
+        selectedCursorFrameTimes: [],
         durationMs: Math.max(state.durationMs, lastFrame),
         undoStack: [],
         redoStack: [],
@@ -871,6 +876,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         inputClipboard: null,
         lastEditMessage: `Loaded project with ${tracks.length} replay${tracks.length === 1 ? '' : 's'}.`,
         selectedCursorFrameMs: null,
+        selectedCursorFrameTimes: [],
         durationMs: Math.max(state.durationMs, lastFrame),
         undoStack: [],
         redoStack: [],
@@ -1204,6 +1210,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedTimeRange: null,
       selectedCursorRange: null,
       selectedCursorFrameMs: null,
+      selectedCursorFrameTimes: [],
     }),
   setClipboardMode: (clipboardMode) => set({ clipboardMode }),
   copySelectedInputs: () =>
@@ -1312,7 +1319,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         lastEditMessage: `${replaceSelection ? `Replaced ${replaced.length} selected input${replaced.length === 1 ? '' : 's'} with` : 'Pasted'} ${next.length} input${next.length === 1 ? '' : 's'} and ${clipboard.cursorFrames.length} cursor frame${clipboard.cursorFrames.length === 1 ? '' : 's'} ${replaceSelection ? 'on' : 'to'} ${target.name}.`,
       };
     }),
-  selectCursorFrame: (timeMs) => set({ selectedCursorFrameMs: timeMs === null ? null : Math.round(timeMs) }),
+  selectCursorFrame: (timeMs, additive = false) =>
+    set((state) => {
+      if (timeMs === null) return { selectedCursorFrameMs: null, selectedCursorFrameTimes: [] };
+      const rounded = Math.round(timeMs);
+      if (!additive) return { selectedCursorFrameMs: rounded, selectedCursorFrameTimes: [] };
+      const previous = state.selectedCursorFrameMs;
+      const base =
+        previous !== null && !state.selectedCursorFrameTimes.includes(previous)
+          ? [...state.selectedCursorFrameTimes, previous]
+          : state.selectedCursorFrameTimes;
+      const selectedCursorFrameTimes = base.includes(rounded)
+        ? base.filter((time) => time !== rounded)
+        : [...base, rounded];
+      return { selectedCursorFrameMs: rounded, selectedCursorFrameTimes };
+    }),
   setCursorFramePosition: (trackId, timeMs, x, y) =>
     set((state) => {
       const track = state.tracks.find((item) => item.id === trackId);
@@ -1393,6 +1414,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return {
         ...changeTracks(state, tracks),
         selectedCursorFrameMs: null,
+        selectedCursorFrameTimes: [],
         playing: false,
         lastEditMessage: `Removed cursor node at ${target} ms.`,
       };
@@ -1452,16 +1474,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         playing: false,
       };
     }),
-  applyBrushDab: (trackId, centerX, centerY, radiusPx, deltaX, deltaY, minMs, maxMs) =>
+  applyBrushDab: (trackId, centerX, centerY, radiusPx, deltaX, deltaY, minMs, maxMs, selectedFrameTimes) =>
     set((state) => {
       const track = state.tracks.find((item) => item.id === trackId);
       if (!track || track.locked || radiusPx <= 0 || (deltaX === 0 && deltaY === 0)) return {};
+      const selectedTimes = selectedFrameTimes?.length ? new Set(selectedFrameTimes.map(Math.round)) : null;
       const frames = track.replay.frames.map((frame) => {
-        if (frame.timeMs < minMs || frame.timeMs > maxMs) return frame;
+        if (selectedTimes ? !selectedTimes.has(frame.timeMs) : frame.timeMs < minMs || frame.timeMs > maxMs)
+          return frame;
         const distance = Math.hypot(frame.x - centerX, frame.y - centerY);
         if (distance >= radiusPx) return frame;
         const weight = 1 - distance / radiusPx;
-        const eased = weight * weight;
+        const eased = weight * weight * (3 - 2 * weight) * 0.35;
         const nextX = Math.max(0, Math.min(512, frame.x + deltaX * eased));
         const nextY = Math.max(0, Math.min(384, frame.y + deltaY * eased));
         return { ...frame, x: Math.round(nextX * 10) / 10, y: Math.round(nextY * 10) / 10 };

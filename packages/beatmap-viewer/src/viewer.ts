@@ -594,6 +594,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     const point = replayPointAt(frames, this.timeMs);
     if (!point) return;
     const color = Number.parseInt(replay.color.replace('#', ''), 16) || 0xffffff;
+    const cursorEditColor = inputVariantColor(color, 2);
     const pathScale = this.options.compactMode ? 0.6 : 1;
     const markerScale = this.options.compactMode ? 0.62 : 1;
     const drawSelectedRange = () => {
@@ -620,7 +621,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
             this.cursorTrail.moveTo(points[0].x, points[0].y);
             points.slice(1).forEach((rangePoint) => this.cursorTrail.lineTo(rangePoint.x, rangePoint.y));
             this.cursorTrail.stroke({
-              color: 0xc875ff,
+              color: cursorEditColor,
               width: 2.6 * pathScale,
               alpha: 0.98,
               cap: 'round',
@@ -629,11 +630,11 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
           }
           this.cursorClicks
             .circle(first.x, first.y, 4.5 * markerScale)
-            .fill({ color: 0xc875ff, alpha: 1 })
+            .fill({ color: cursorEditColor, alpha: 1 })
             .stroke({ color: 0xffffff, width: 1.5 * markerScale, alpha: 1 });
           this.cursorClicks
             .rect(last.x - 4 * markerScale, last.y - 4 * markerScale, 8 * markerScale, 8 * markerScale)
-            .fill({ color: 0xc875ff, alpha: 1 })
+            .fill({ color: cursorEditColor, alpha: 1 })
             .stroke({ color: 0xffffff, width: 1.5 * markerScale, alpha: 1 });
         }
       }
@@ -694,6 +695,22 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
           this.cursorTrail
             .lineTo(future.x, future.y)
             .stroke({ color: 0xffffff, width: 1.35 * pathScale, alpha: 0.82, cap: 'round', join: 'round' });
+      }
+      const frameMarkerRadius = 3.2 * markerScale;
+      for (let i = from; i < frames.length && frames[i].timeMs <= untilTime; i++) {
+        const frame = frames[i];
+        const pastOrCurrent = frame.timeMs <= this.timeMs;
+        if ((pastOrCurrent && !this.options.showCursorPast) || (!pastOrCurrent && !this.options.showCursorFuture))
+          continue;
+        const drawFrameX = (strokeColor: number, width: number, alpha: number) =>
+          this.cursorClicks
+            .moveTo(frame.x - frameMarkerRadius, frame.y - frameMarkerRadius)
+            .lineTo(frame.x + frameMarkerRadius, frame.y + frameMarkerRadius)
+            .moveTo(frame.x + frameMarkerRadius, frame.y - frameMarkerRadius)
+            .lineTo(frame.x - frameMarkerRadius, frame.y + frameMarkerRadius)
+            .stroke({ color: strokeColor, width, alpha, cap: 'round' });
+        drawFrameX(0x0b0f15, 3.4 * markerScale, 0.92);
+        drawFrameX(cursorEditColor, 1.7 * markerScale, pastOrCurrent ? 0.9 : 1);
       }
       let heldOrder = [0, 1, 2, 3].filter((keyIndex) => (logicalButtons(frames[0].keys) & (1 << keyIndex)) !== 0);
       for (let i = 1; i < Math.max(1, from + 1); i++)

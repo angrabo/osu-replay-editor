@@ -41,6 +41,7 @@ function sameInput(first: InputSelection | null, second: InputSelection): boolea
 
 export function Timeline({ resolution }: { resolution: Resolution | null }) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const horizontalScrollRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ x: number; start: number; moved: boolean; mode: 'seek' | 'pan' } | null>(null);
   const marqueeRef = useRef<{ pointerId: number; x: number; y: number; additive: boolean; timeRange: boolean } | null>(
     null,
@@ -260,6 +261,18 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
 
   const visibleMs = (width * 1000) / pixelsPerSecond;
   const maxWindowStart = Math.max(timelineOrigin, durationMs - visibleMs);
+  const timelineSpanMs = Math.max(visibleMs, durationMs - timelineOrigin);
+  const scrollbarContentScale = visibleMs > 0 ? Math.max(1, timelineSpanMs / visibleMs) : 1;
+
+  useEffect(() => {
+    const scrollbar = horizontalScrollRef.current;
+    if (!scrollbar) return;
+    const scrollableWidth = scrollbar.scrollWidth - scrollbar.clientWidth;
+    const scrollableTime = maxWindowStart - timelineOrigin;
+    const progress = scrollableTime > 0 ? (start - timelineOrigin) / scrollableTime : 0;
+    const nextLeft = Math.max(0, Math.min(scrollableWidth, progress * scrollableWidth));
+    if (Math.abs(scrollbar.scrollLeft - nextLeft) > 0.5) scrollbar.scrollLeft = nextLeft;
+  }, [maxWindowStart, start, timelineOrigin, scrollbarContentScale]);
 
   const laneAtPointer = (event: ReactWheelEvent<HTMLDivElement>): number | null => {
     const target = event.target as HTMLElement;
@@ -594,6 +607,14 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
                     endMs: Math.round(start + (right * 1000) / pixelsPerSecond),
                   }
                 : null;
+              if (!hasTimeSpan && !inputs.length && !cursorLaneSelected && !selection.additive) {
+                selectBeatmapObject(null);
+                marqueeRef.current = null;
+                setMarquee(null);
+                if (event.currentTarget.hasPointerCapture(event.pointerId))
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                return;
+              }
               selectInputs(inputs, selection.additive);
               selectTimeRange(selection.timeRange ? selectedRange : null);
               if (!selection.timeRange)
@@ -837,19 +858,28 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
       </div>
       <div className="timeline-footer">
         <TimelineZoomControl pixelsPerSecond={pixelsPerSecond} setPixelsPerSecond={setPixelsPerSecond} />
-        <input
+        <div
+          ref={horizontalScrollRef}
           aria-label="Timeline horizontal scrollbar"
+          aria-valuemin={timelineOrigin}
+          aria-valuemax={Math.max(timelineOrigin, maxWindowStart)}
+          aria-valuenow={Math.max(timelineOrigin, Math.min(maxWindowStart, start))}
           className="timeline-horizontal-scroll"
-          type="range"
-          min={timelineOrigin}
-          max={Math.max(timelineOrigin, maxWindowStart)}
-          step={wheelMode === 'frame' ? 1 : Math.max(1, wheelStepMs)}
-          value={Math.max(timelineOrigin, Math.min(maxWindowStart, start))}
-          onChange={(event) => {
+          role="scrollbar"
+          tabIndex={0}
+          onScroll={(event) => {
+            const scrollbar = event.currentTarget;
+            const scrollableWidth = scrollbar.scrollWidth - scrollbar.clientWidth;
+            if (scrollableWidth <= 0) return;
+            const nextStart =
+              timelineOrigin + (scrollbar.scrollLeft / scrollableWidth) * (maxWindowStart - timelineOrigin);
+            if (Math.abs(nextStart - start) < 0.5) return;
             setFollowPlayback(false);
-            setWindowStart(Number(event.target.value));
+            setWindowStart(nextStart);
           }}
-        />
+        >
+          <div style={{ width: `${scrollbarContentScale * 100}%` }} />
+        </div>
       </div>
     </div>
   );

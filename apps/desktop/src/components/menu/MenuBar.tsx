@@ -74,16 +74,15 @@ export function MenuBar({
     };
   }, [menuOpen]);
 
-  const toggleMenu = (menu: MenuName) => setMenuOpen((current) => (current === menu ? null : menu));
   const runAction = (action: AcquisitionAction) => {
     openAcquisition(action);
     setMenuOpen(null);
   };
 
   return (
-    <nav className="menu-bar" ref={menuBarRef}>
-      <div className="menu-item">
-        <button aria-haspopup="menu" aria-expanded={menuOpen === 'file'} onClick={() => toggleMenu('file')}>
+    <nav className="menu-bar" ref={menuBarRef} onPointerLeave={() => setMenuOpen(null)}>
+      <div className="menu-item" onPointerEnter={() => setMenuOpen('file')}>
+        <button aria-haspopup="menu" aria-expanded={menuOpen === 'file'} onFocus={() => setMenuOpen('file')}>
           File
         </button>
         {menuOpen === 'file' && (
@@ -101,8 +100,8 @@ export function MenuBar({
           />
         )}
       </div>
-      <div className="menu-item">
-        <button aria-haspopup="menu" aria-expanded={menuOpen === 'edit'} onClick={() => toggleMenu('edit')}>
+      <div className="menu-item" onPointerEnter={() => setMenuOpen('edit')}>
+        <button aria-haspopup="menu" aria-expanded={menuOpen === 'edit'} onFocus={() => setMenuOpen('edit')}>
           Edit
         </button>
         {menuOpen === 'edit' && (
@@ -129,8 +128,8 @@ export function MenuBar({
           />
         )}
       </div>
-      <div className="menu-item">
-        <button aria-haspopup="menu" aria-expanded={menuOpen === 'view'} onClick={() => toggleMenu('view')}>
+      <div className="menu-item" onPointerEnter={() => setMenuOpen('view')}>
+        <button aria-haspopup="menu" aria-expanded={menuOpen === 'view'} onFocus={() => setMenuOpen('view')}>
           View
         </button>
         {menuOpen === 'view' && (
@@ -156,8 +155,8 @@ export function MenuBar({
           />
         )}
       </div>
-      <div className="menu-item">
-        <button aria-haspopup="menu" aria-expanded={menuOpen === 'playback'} onClick={() => toggleMenu('playback')}>
+      <div className="menu-item" onPointerEnter={() => setMenuOpen('playback')}>
+        <button aria-haspopup="menu" aria-expanded={menuOpen === 'playback'} onFocus={() => setMenuOpen('playback')}>
           Playback
         </button>
         {menuOpen === 'playback' && (
@@ -173,8 +172,8 @@ export function MenuBar({
           />
         )}
       </div>
-      <div className="menu-item">
-        <button aria-haspopup="menu" aria-expanded={menuOpen === 'timeline'} onClick={() => toggleMenu('timeline')}>
+      <div className="menu-item" onPointerEnter={() => setMenuOpen('timeline')}>
+        <button aria-haspopup="menu" aria-expanded={menuOpen === 'timeline'} onFocus={() => setMenuOpen('timeline')}>
           Timeline
         </button>
         {menuOpen === 'timeline' && (

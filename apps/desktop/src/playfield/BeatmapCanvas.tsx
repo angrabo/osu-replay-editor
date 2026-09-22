@@ -1,5 +1,6 @@
 import {
   applyPreviewMods,
+  inputVariantColor,
   parseOsu,
   PixiBeatmapViewer,
   replayPointAt,
@@ -135,8 +136,11 @@ export function BeatmapCanvas({
   const inputEditPreview = useEditorStore((state) => state.inputEditPreview);
   const tool = useEditorStore((state) => state.tool);
   const selectedCursorFrameMs = useEditorStore((state) => state.selectedCursorFrameMs);
+  const selectedCursorFrameTimes = useEditorStore((state) => state.selectedCursorFrameTimes);
+  const selectedCursorRange = useEditorStore((state) => state.selectedCursorRange);
   const selectedTimeRange = useEditorStore((state) => state.selectedTimeRange);
   const selectCursorFrame = useEditorStore((state) => state.selectCursorFrame);
+  const selectBeatmapObject = useEditorStore((state) => state.selectBeatmapObject);
   const setCursorFramePosition = useEditorStore((state) => state.setCursorFramePosition);
   const deleteCursorFrame = useEditorStore((state) => state.deleteCursorFrame);
   const drawCursorPath = useEditorStore((state) => state.drawCursorPath);
@@ -379,10 +383,11 @@ export function BeatmapCanvas({
               endTime: liveSelection.endTime,
             }
           : null,
-      selectedRange:
-        tool === 'draw' && selectedTimeRange
-          ? { startTime: selectedTimeRange.startMs, endTime: selectedTimeRange.endMs }
-          : null,
+      selectedRange: (() => {
+        if (tool !== 'draw' && tool !== 'brush') return null;
+        const range = selectedCursorRange?.trackId === previewTrack.id ? selectedCursorRange : selectedTimeRange;
+        return range ? { startTime: range.startMs, endTime: range.endMs } : null;
+      })(),
     });
   }, [
     ready,
@@ -392,6 +397,7 @@ export function BeatmapCanvas({
     inputEditPreview,
     cursorDraft,
     selectedCursorFrameMs,
+    selectedCursorRange,
     tool,
     selectedTimeRange,
   ]);
@@ -408,6 +414,12 @@ export function BeatmapCanvas({
     : 1;
   const originX = hostRef.current ? (hostRef.current.clientWidth - 512 * scale) / 2 + pan.x : 0;
   const originY = hostRef.current ? (hostRef.current.clientHeight - 384 * scale) / 2 + pan.y : 0;
+  const cursorEditColor = `#${inputVariantColor(
+    Number.parseInt(previewTrack?.color.replace('#', '') ?? '', 16) || 0xffffff,
+    2,
+  )
+    .toString(16)
+    .padStart(6, '0')}`;
   const cursorFrameTime = displayedReplay
     ? nearestReplayFrameTime(displayedReplay.frames, selectedCursorFrameMs ?? playhead)
     : 0;
@@ -506,11 +518,20 @@ export function BeatmapCanvas({
           return;
         }
         if (tool === 'select') {
-          if (!previewTrack || previewTrack.locked) return;
+          if (!previewTrack || previewTrack.locked) {
+            selectBeatmapObject(null);
+            return;
+          }
           const point = pointerPoint(event.clientX, event.clientY);
-          if (!point) return;
+          if (!point) {
+            selectBeatmapObject(null);
+            return;
+          }
           const timeMs = cursorFrameTime;
-          if (cursorPoint && Math.hypot(point.x - cursorPoint.x, point.y - cursorPoint.y) * scale > 24) return;
+          if (!cursorPoint || Math.hypot(point.x - cursorPoint.x, point.y - cursorPoint.y) * scale > 24) {
+            selectBeatmapObject(null);
+            return;
+          }
           event.preventDefault();
           event.currentTarget.setPointerCapture(event.pointerId);
           selectCursorFrame(timeMs);
@@ -567,15 +588,25 @@ export function BeatmapCanvas({
           if (point) setBrushHover(point);
           const brush = brushDragRef.current;
           if (brush?.pointerId === event.pointerId && point) {
+            const selectedRange =
+              selectedCursorRange?.trackId === brush.trackId ? selectedCursorRange : selectedTimeRange;
+            const selectedFrames = selectedRange
+              ? undefined
+              : selectedCursorFrameTimes.length
+                ? selectedCursorFrameTimes
+                : selectedCursorFrameMs === null
+                  ? undefined
+                  : [selectedCursorFrameMs];
             applyBrushDab(
               brush.trackId,
-              point.x,
-              point.y,
+              brush.x,
+              brush.y,
               brushRadiusPx,
               point.x - brush.x,
               point.y - brush.y,
-              playhead - cursorTrailMs,
-              playhead + cursorTrailMs,
+              selectedRange?.startMs ?? playhead - cursorTrailMs,
+              selectedRange?.endMs ?? playhead + cursorTrailMs,
+              selectedFrames,
             );
             brushDragRef.current = { ...brush, x: point.x, y: point.y };
           }
@@ -768,12 +799,28 @@ export function BeatmapCanvas({
           <polyline
             points={strokeDraft.map((point) => `${point.x},${point.y}`).join(' ')}
             fill="none"
-            stroke="#ffffff"
-            strokeWidth="1.8"
+            stroke="#0b0f15"
+            strokeWidth="4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity="0.92"
+          />
+          <polyline
+            points={strokeDraft.map((point) => `${point.x},${point.y}`).join(' ')}
+            fill="none"
+            stroke={cursorEditColor}
+            strokeWidth="2.2"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
-          <circle cx={strokeDraft[0].x} cy={strokeDraft[0].y} r="4" fill="#ffffff" />
+          <circle
+            cx={strokeDraft[0].x}
+            cy={strokeDraft[0].y}
+            r="4.5"
+            fill={cursorEditColor}
+            stroke="#ffffff"
+            strokeWidth="1.3"
+          />
         </svg>
       )}
       {resolution && (

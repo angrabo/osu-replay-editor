@@ -288,6 +288,21 @@ describe('cursor frame editing', () => {
     useEditorStore.getState().undo();
     assert.equal(useEditorStore.getState().tracks[0].replay.frames.find((item) => item.timeMs === 17)?.x, 400);
   });
+
+  test('brush warps only selected existing replay frames with center-weighted falloff and one undo step', () => {
+    const [sourceTrack] = useEditorStore.getState().tracks;
+    const before = useEditorStore.getState().tracks[0].replay.frames.map((item) => ({ ...item }));
+    const frameCount = before.length;
+    const center = before.find((item) => item.timeMs === 17)!;
+    useEditorStore.getState().beginBrushStroke(sourceTrack.id);
+    useEditorStore.getState().applyBrushDab(sourceTrack.id, center.x, center.y, 100, 20, 10, 0, 34, [17]);
+    const after = useEditorStore.getState().tracks[0].replay.frames;
+    assert.equal(after.length, frameCount);
+    assert.deepEqual(after.find((item) => item.timeMs === 17), { ...center, x: center.x + 7, y: center.y + 3.5 });
+    assert.deepEqual(after.filter((item) => item.timeMs !== 17), before.filter((item) => item.timeMs !== 17));
+    useEditorStore.getState().undo();
+    assert.deepEqual(useEditorStore.getState().tracks[0].replay.frames, before);
+  });
 });
 
 describe('clipboard cursor-frame modes', () => {

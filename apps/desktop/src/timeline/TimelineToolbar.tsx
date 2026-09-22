@@ -52,7 +52,6 @@ export function TimelineToolbar({
   const saveDefaultTimelineLaneHeight = useEditorStore((state) => state.saveDefaultTimelineLaneHeight);
   const resetTimelineLaneHeights = useEditorStore((state) => state.resetTimelineLaneHeights);
   const [laneHeightDraft, setLaneHeightDraft] = useState(timelineLaneHeight);
-  const [optionsOpen, setOptionsOpen] = useState(false);
   const { previewTrack, simulationState, simulationScope, setSimulationScope, runSimulation } =
     useSimulationRunner(resolution);
 
@@ -161,15 +160,10 @@ export function TimelineToolbar({
       >
         {layoutMode === 'overlap' ? <Layers3 size={15} /> : <Rows3 size={15} />}
       </button>
-      <button
-        className={optionsOpen ? 'active' : ''}
-        title="Timeline modes and filters"
-        aria-label="Timeline modes and filters"
-        onClick={() => setOptionsOpen((value) => !value)}
-      >
-        <ChevronRight size={15} />
-      </button>
-      {optionsOpen && (
+      <div className="timeline-options-host">
+        <button title="Timeline modes and filters" aria-label="Timeline modes and filters">
+          <ChevronRight size={15} />
+        </button>
         <div className="premiere-popover timeline-options-panel">
           <strong>Timeline display</strong>
           <small>Track layout and lane sizing</small>
@@ -201,7 +195,7 @@ export function TimelineToolbar({
             Use default ({timelineDefaultLaneHeight} px)
           </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
