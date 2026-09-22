@@ -53,3 +53,31 @@ jobs:
           releaseName: "osu! Replay Editor ${{ github.ref_name }}"
           releaseDraft: true
           prerelease: false
+
+      # tauri-action's built-in includeUpdaterJson doesn't reliably emit latest.json for the
+      # NSIS target (it looks for a *.nsis.zip.sig, but Tauri 2 signs the setup.exe directly) —
+      # build and upload it ourselves from the artifacts that actually exist.
+      - name: Build and upload latest.json
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $bundleDir = 'apps/desktop/src-tauri/target/release/bundle/nsis'
+          $installer = Get-ChildItem -Path $bundleDir -Filter '*.exe' | Select-Object -First 1
+          if (-not $installer) { throw "No NSIS installer found in $bundleDir" }
+          $sigPath = "$($installer.FullName).sig"
+          if (-not (Test-Path $sigPath)) { throw "No signature file found at $sigPath" }
+          $signature = Get-Content -LiteralPath $sigPath -Raw
+          $tag = '${{ github.ref_name }}'
+          $version = $tag.TrimStart('v')
+          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/$tag/$([Uri]::EscapeDataString($installer.Name))"
+          $manifest = @{
+            version = $version
+            notes = "See the release notes on GitHub."
+            pub_date = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            platforms = @{
+              'windows-x86_64' = @{ signature = $signature.Trim(); url = $downloadUrl }
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path latest.json -Encoding utf8
+          gh release upload $tag latest.json --clobber --repo ${{ github.repository }}
