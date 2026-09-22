@@ -98,3 +98,9 @@ npm run test:replay    # replay import smoke tests
 npm run test:simulation
 dotnet build ReplayEditor.slnx
 ```
+
+---
+
+This is an unofficial, independent project. It is not affiliated with, endorsed
+by, or associated with osu! or ppy Pty Ltd in any way. "osu!" and related marks
+belong to their respective owners.
