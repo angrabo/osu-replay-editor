@@ -1,7 +1,7 @@
 /// <summary>
 /// App build metadata: bump alongside package.json and src-tauri/tauri.conf.json on release.
 /// </summary>
-export const APP_VERSION = '0.1.3';
+export const APP_VERSION = '0.1.4';
 
 export const REPOSITORY = {
   owner: 'angrabo',

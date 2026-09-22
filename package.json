@@ -1,7 +1,7 @@
 {
   "name": "osu-replay-editor",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "workspaces": ["apps/desktop", "packages/beatmap-viewer"],
   "scripts": {
     "postinstall": "node scripts/ensure-app-config.mjs",
