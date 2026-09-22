@@ -79,7 +79,10 @@ export function useKeyboardShortcuts({
         }
       } else if (event.key === 'Delete') {
         const state = useEditorStore.getState();
-        if (state.tool === 'curve' && state.previewTrackId && state.selectedCursorFrameMs !== null) {
+        if (state.tool === 'curve' && state.previewTrackId && state.selectedCursorFrameTimes.length) {
+          event.preventDefault();
+          state.deleteSelectedCursorFrames(state.previewTrackId);
+        } else if (state.tool === 'curve' && state.previewTrackId && state.selectedCursorFrameMs !== null) {
           event.preventDefault();
           state.deleteCursorFrame(state.previewTrackId, state.selectedCursorFrameMs);
         } else if (state.selectedInputs.length) {

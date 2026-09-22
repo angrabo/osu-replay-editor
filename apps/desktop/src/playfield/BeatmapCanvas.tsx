@@ -721,8 +721,8 @@ export function BeatmapCanvas({
         previewTrack &&
         tool === 'curve' &&
         curveFrames.map((frame) => {
-          const selected = frame.timeMs === selectedCursorFrameMs;
-          const point = selected && cursorDraft ? cursorDraft : frame;
+          const selected = frame.timeMs === selectedCursorFrameMs || selectedCursorFrameTimes.includes(frame.timeMs);
+          const point = selected && cursorDraft && frame.timeMs === selectedCursorFrameMs ? cursorDraft : frame;
           return (
             <button
               type="button"
@@ -736,7 +736,9 @@ export function BeatmapCanvas({
                 event.preventDefault();
                 event.stopPropagation();
                 setPlaying(false);
-                selectCursorFrame(frame.timeMs);
+                const additive = event.ctrlKey || event.metaKey || event.shiftKey;
+                selectCursorFrame(frame.timeMs, additive);
+                if (additive) return;
                 hostRef.current?.setPointerCapture(event.pointerId);
                 cursorDragRef.current = {
                   pointerId: event.pointerId,

@@ -258,6 +258,7 @@ export type EditorState = {
   setCursorFramePosition: (trackId: string, timeMs: number, x: number, y: number) => void;
   insertCursorFrame: (trackId: string, timeMs: number, x: number, y: number) => void;
   deleteCursorFrame: (trackId: string, timeMs: number) => void;
+  deleteSelectedCursorFrames: (trackId: string) => void;
   moveCursorFrameTime: (trackId: string, fromMs: number, toMs: number) => void;
   drawCursorPath: (trackId: string, points: CursorStrokePoint[]) => void;
   beginBrushStroke: (trackId: string) => void;
@@ -1417,6 +1418,43 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         selectedCursorFrameTimes: [],
         playing: false,
         lastEditMessage: `Removed cursor node at ${target} ms.`,
+      };
+    }),
+  deleteSelectedCursorFrames: (trackId) =>
+    set((state) => {
+      const track = state.tracks.find((item) => item.id === trackId);
+      if (!track || track.locked) return { lastEditMessage: 'Choose an unlocked replay track.' };
+      const targets = new Set(
+        [...state.selectedCursorFrameTimes, state.selectedCursorFrameMs].filter(
+          (time): time is number => time !== null,
+        ),
+      );
+      if (!targets.size) return {};
+      const original = track.replay.frames;
+      let frames = original.map((frame) => ({ ...frame }));
+      let removed = 0;
+      for (const target of [...targets].sort((first, second) => second - first)) {
+        const index = frames.findIndex((frame) => frame.timeMs === target);
+        if (index <= 0 || index >= frames.length - 1) continue;
+        if (logicalKeys(frames[index - 1].keys) !== logicalKeys(frames[index].keys)) continue;
+        frames.splice(index, 1);
+        removed += 1;
+      }
+      if (!removed) return { lastEditMessage: 'Selected nodes cannot be removed (edge or input-changing frames).' };
+      frames.forEach((frame, item) => {
+        frame.deltaMs = item ? frame.timeMs - frames[item - 1].timeMs : frame.timeMs;
+      });
+      const tracks = state.tracks.map((item) =>
+        item.id === trackId
+          ? { ...item, edited: true, replay: { ...item.replay, frames, keyEvents: rebuildKeyEvents(frames) } }
+          : item,
+      );
+      return {
+        ...changeTracks(state, tracks),
+        selectedCursorFrameMs: null,
+        selectedCursorFrameTimes: [],
+        playing: false,
+        lastEditMessage: `Removed ${removed} cursor node${removed === 1 ? '' : 's'}.`,
       };
     }),
   moveCursorFrameTime: (trackId, fromMs, toMs) =>
