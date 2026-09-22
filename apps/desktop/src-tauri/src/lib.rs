@@ -30,6 +30,20 @@ fn sidecar_connection(state: tauri::State<'_, SidecarState>) -> SidecarConnectio
     state.connection.clone()
 }
 
+/// <summary>
+/// Stops the sidecar and tells the monitor thread to stop restarting it, so the updater can
+/// overwrite replay-editor-sidecar.exe on disk instead of failing with "file in use".
+/// </summary>
+#[tauri::command]
+fn stop_sidecar_for_update(state: tauri::State<'_, SidecarState>) {
+    state.stopping.store(true, Ordering::SeqCst);
+    let child_to_stop = { state.child.lock().expect("sidecar process lock poisoned").take() };
+    if let Some(mut child) = child_to_stop {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
 fn sidecar_path() -> Result<PathBuf, String> {
     let target_name = "replay-editor-sidecar-x86_64-pc-windows-msvc.exe";
     let development = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -121,7 +135,7 @@ pub fn run() {
             monitor_sidecar(app.handle().clone());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![sidecar_connection])
+        .invoke_handler(tauri::generate_handler![sidecar_connection, stop_sidecar_for_update])
         .build(tauri::generate_context!())
         .expect("Failed to build Tauri application");
 

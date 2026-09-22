@@ -50,7 +50,11 @@ export function useAutoUpdater() {
     setInstalling(true);
     void (async () => {
       try {
+        const { invoke } = await import('@tauri-apps/api/core');
         const { relaunch } = await import('@tauri-apps/plugin-process');
+        // The sidecar is a separate process the NSIS installer doesn't know about — stop it
+        // first, otherwise overwriting replay-editor-sidecar.exe fails with "file in use".
+        await invoke('stop_sidecar_for_update');
         await updateHandle.downloadAndInstall();
         await relaunch();
       } catch {
