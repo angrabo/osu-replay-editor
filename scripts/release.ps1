@@ -17,8 +17,9 @@ if ((git status --porcelain) -and -not $Push) {
 
 function Set-JsonVersion([string]$Path) {
     $text = Get-Content -LiteralPath $Path -Raw
-    $updated = $text -replace '"version":\s*"\d+\.\d+\.\d+"', "`"version`": `"$Version`""
-    if ($updated -eq $text) { throw "No version field found in $Path" }
+    $pattern = '"version":\s*"\d+\.\d+\.\d+"'
+    if (-not ([regex]::IsMatch($text, $pattern))) { throw "No version field found in $Path" }
+    $updated = [regex]::Replace($text, $pattern, "`"version`": `"$Version`"")
     Set-Content -LiteralPath $Path -Value $updated -NoNewline
     Write-Host "Updated $Path"
 }
@@ -29,8 +30,9 @@ Set-JsonVersion (Join-Path $projectRoot 'apps/desktop/src-tauri/tauri.conf.json'
 
 $appMetaPath = Join-Path $projectRoot 'apps/desktop/src/appMeta.ts'
 $appMetaText = Get-Content -LiteralPath $appMetaPath -Raw
-$appMetaUpdated = $appMetaText -replace "APP_VERSION = '[^']*'", "APP_VERSION = '$Version'"
-if ($appMetaUpdated -eq $appMetaText) { throw "APP_VERSION not found in $appMetaPath" }
+$appMetaPattern = "APP_VERSION = '[^']*'"
+if (-not ([regex]::IsMatch($appMetaText, $appMetaPattern))) { throw "APP_VERSION not found in $appMetaPath" }
+$appMetaUpdated = [regex]::Replace($appMetaText, $appMetaPattern, "APP_VERSION = '$Version'")
 Set-Content -LiteralPath $appMetaPath -Value $appMetaUpdated -NoNewline
 Write-Host "Updated $appMetaPath"
 
