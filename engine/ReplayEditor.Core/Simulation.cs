@@ -1,0 +1,50 @@
+namespace ReplayEditor.Core;
+
+public sealed record SimulationFrame(long TimeMs, double X, double Y, int Keys);
+
+public sealed record ObjectJudgement(
+    int ObjectIndex,
+    string Kind,
+    double StartTime,
+    double EndTime,
+    string Result,
+    int Value,
+    double? HitTime,
+    double? HitError,
+    double CursorDistance,
+    bool Inside,
+    string? Key,
+    int ComboAfter,
+    long ScoreAfter,
+    int NestedHits = 0,
+    int NestedTotal = 0);
+
+public sealed record SimulationResult(
+    string Scope,
+    string Model,
+    string Status,
+    long Score,
+    double Accuracy,
+    int Count300,
+    int Count100,
+    int Count50,
+    int Misses,
+    int MaxCombo,
+    int AchievedCombo,
+    int TotalObjects,
+    ObjectJudgement[] Judgements,
+    string[] Warnings,
+    string Client,
+    long BonusScore,
+    double SpinnerSpins,
+    int SliderTicksHit,
+    int SliderTicksTotal,
+    int SliderEndsHit,
+    int SliderEndsTotal,
+    int SpinnerSpinsHit,
+    int SpinnerSpinsTotal,
+    int SpinnerBonusHit,
+    int SpinnerBonusTotal,
+    int? CountGeki = null,
+    int? CountKatu = null,
+    bool? Perfect = null);

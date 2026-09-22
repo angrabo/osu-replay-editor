@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/Engine/">
+    <Project Path="engine/ReplayEditor.Api/ReplayEditor.Api.csproj" />
+    <Project Path="engine/ReplayEditor.Contracts/ReplayEditor.Contracts.csproj" />
+    <Project Path="engine/ReplayEditor.Core/ReplayEditor.Core.csproj" />
+    <Project Path="engine/ReplayEditor.Engine/ReplayEditor.Engine.csproj" />
+    <Project Path="engine/ReplayEditor.Osu/ReplayEditor.Osu.csproj" />
+    <Project Path="engine/ReplayEditor.Simulation/ReplayEditor.Simulation.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="tests/engine/ReplayEditor.M2Smoke/ReplayEditor.M2Smoke.csproj" />
+    <Project Path="tests/engine/ReplayEditor.M4Smoke/ReplayEditor.M4Smoke.csproj" />
+    <Project Path="tests/engine/ReplayEditor.SimulationCompare/ReplayEditor.SimulationCompare.csproj" />
+    <Project Path="tests/engine/ReplayEditor.SimulationSmoke/ReplayEditor.SimulationSmoke.csproj" />
+  </Folder>
+</Solution>

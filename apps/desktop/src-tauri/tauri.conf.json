@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "osu! Replay Editor",
+  "version": "0.1.0",
+  "identifier": "dev.osu.replayeditor",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{
+      "title": "osu! Replay Editor",
+      "width": 1536,
+      "height": 1024,
+      "minWidth": 1100,
+      "minHeight": 700,
+      "backgroundColor": "#10151d"
+    }]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "externalBin": ["binaries/replay-editor-sidecar"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI1N0M1QkE4RTY1ODFBMUEKUldRYUdsam1xRnQ4SlFQVFpXV3B0Y1B2eDFlNXU2QkpqR0pEVmZlWm9BT1p6dGg4L2dnQ2JLM2kK",
+      "endpoints": [
+        "https://github.com/OWNER/REPO/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

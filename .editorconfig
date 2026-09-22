@@ -1,0 +1,74 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.cs]
+indent_size = 4
+
+# Braces: always on their own line (Allman) when a block is braced. A single
+# statement body stays bracket-less — `if (x) return y;`/`if (x)\n    y;` is
+# fine and must not be flagged; braces are only forced once the body itself
+# spans multiple lines.
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_prefer_braces = when_multiline:silent
+
+resharper_braces_for_ifelse = not_required
+resharper_braces_for_for = not_required
+resharper_braces_for_foreach = not_required
+resharper_braces_for_while = not_required
+resharper_braces_for_dowhile = not_required
+resharper_braces_for_using = not_required
+resharper_braces_for_lock = not_required
+resharper_braces_for_fixed = not_required
+resharper_missing_braces_highlighting = none
+
+# `namespace X;` everywhere, one namespace per file.
+csharp_style_namespace_declarations = file_scoped:warning
+
+# Folders are for physical organisation only — do NOT rewrite a file's
+# namespace to match its folder path. A type's namespace is a deliberate
+# choice (public API surface), independent of where the file happens to live.
+dotnet_diagnostic.IDE0130.severity = none
+resharper_check_namespace_highlighting = none
+
+# `System.*` usings first, alphabetical, one blank line before the namespace.
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# var when the type is obvious from the right-hand side.
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = true:suggestion
+
+# Never hand-align declarations/parameters/arguments into columns — a renamed
+# identifier should not force a reflow of unrelated lines.
+resharper_align_multiline_parameter = false
+resharper_align_multiline_argument = false
+resharper_align_multiline_extends_list = false
+resharper_align_multiple_declaration = false
+resharper_align_linq_query = false
+resharper_align_tuple_components = false
+resharper_align_multiline_binary_expressions_chain = false
+
+# Wrap only when a line is actually too long, and keep continuations at one
+# normal indent step (not lined up under the opening paren).
+resharper_wrap_arguments_style = chop_if_long
+resharper_wrap_parameters_style = chop_if_long
+resharper_indent_pars = usual_indent
+resharper_max_line_length = 140
+
+dotnet_diagnostic.CS1591.severity = none
+
+[*.{csproj,slnx}]
+indent_size = 2
+
+[*.{ts,tsx,json}]
+indent_size = 2

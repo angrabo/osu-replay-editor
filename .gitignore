@@ -1,0 +1,46 @@
+# Secrets / local config
+.env
+.env.*
+!.env.example
+app.config.json
+!app.config.example.json
+updater-signing-key.pem*
+**/appsettings.Development.local.json
+**/secrets.json
+
+# Docs: only the root README is tracked
+**/*.md
+!/README.md
+
+# Node / frontend
+**/node_modules/
+**/dist/
+**/.vite/
+*.tsbuildinfo
+npm-debug.log*
+
+# .NET
+**/bin/
+**/obj/
+**/TestResults/
+*.trx
+*.user
+*.suo
+
+# Tauri
+**/target/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/binaries/*.exe
+
+# Build scratch
+.build/
+.reference-upstream/
+coverage/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+.vs/

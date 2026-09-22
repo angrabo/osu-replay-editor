@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ReplayEditor.Core/ReplayEditor.Core.csproj" />
+    <ProjectReference Include="../ReplayEditor.Osu/ReplayEditor.Osu.csproj" />
+    <ProjectReference Include="../ReplayEditor.Simulation/ReplayEditor.Simulation.csproj" />
+    <ProjectReference Include="../ReplayEditor.Api/ReplayEditor.Api.csproj" />
+    <ProjectReference Include="../ReplayEditor.Contracts/ReplayEditor.Contracts.csproj" />
+  </ItemGroup>
+</Project>
