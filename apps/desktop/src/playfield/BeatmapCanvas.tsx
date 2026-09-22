@@ -136,7 +136,6 @@ export function BeatmapCanvas({
   const selectedTimeRange = useEditorStore((state) => state.selectedTimeRange);
   const selectCursorFrame = useEditorStore((state) => state.selectCursorFrame);
   const setCursorFramePosition = useEditorStore((state) => state.setCursorFramePosition);
-  const insertCursorFrame = useEditorStore((state) => state.insertCursorFrame);
   const deleteCursorFrame = useEditorStore((state) => state.deleteCursorFrame);
   const drawCursorPath = useEditorStore((state) => state.drawCursorPath);
 
@@ -535,31 +534,16 @@ export function BeatmapCanvas({
         )
           return;
         const point = pointerPoint(event.clientX, event.clientY);
-        if (!point || curveFrames.length < 2) return;
-        let closest: { distance: number; timeMs: number; x: number; y: number } | null = null;
-        for (let index = 1; index < curveFrames.length; index++) {
-          const before = curveFrames[index - 1];
-          const after = curveFrames[index];
-          const dx = after.x - before.x;
-          const dy = after.y - before.y;
-          const lengthSquared = dx * dx + dy * dy;
-          if (lengthSquared === 0 || after.timeMs - before.timeMs <= 1) continue;
-          const amount = Math.max(
-            0,
-            Math.min(1, ((point.x - before.x) * dx + (point.y - before.y) * dy) / lengthSquared),
-          );
-          const x = before.x + dx * amount;
-          const y = before.y + dy * amount;
-          const projectedTime = Math.round(before.timeMs + (after.timeMs - before.timeMs) * amount);
-          const candidate = {
-            distance: Math.hypot(point.x - x, point.y - y) * scale,
-            timeMs: Math.max(before.timeMs + 1, Math.min(after.timeMs - 1, projectedTime)),
-            x,
-            y,
-          };
-          if (!closest || candidate.distance < closest.distance) closest = candidate;
+        if (!point || curveFrames.length < 1) return;
+        // Only ever move an already-existing replay frame (or an input-cut-created one) —
+        // osu! replays don't have samples at arbitrary times, so never synthesize a new one.
+        let closest: { distance: number; frame: (typeof curveFrames)[number] } | null = null;
+        for (const frame of curveFrames) {
+          const distance = Math.hypot(point.x - frame.x, point.y - frame.y) * scale;
+          if (!closest || distance < closest.distance) closest = { distance, frame };
         }
-        if (closest && closest.distance <= 12) insertCursorFrame(previewTrack.id, closest.timeMs, closest.x, closest.y);
+        if (closest && closest.distance <= 12)
+          setCursorFramePosition(previewTrack.id, closest.frame.timeMs, point.x, point.y);
       }}
       onPointerMove={(event) => {
         const drag = panDragRef.current;

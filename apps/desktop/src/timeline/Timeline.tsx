@@ -60,6 +60,9 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
   } | null>(null);
   const [bladePreview, setBladePreview] = useState<{ timeMs: number; lane: number } | null>(null);
   const [contextMenu, setContextMenu] = useState<TimelineContextMenuState | null>(null);
+  const [brushRadiusMs, setBrushRadiusMs] = useState(150);
+  const [brushHover, setBrushHover] = useState<{ x: number; y: number } | null>(null);
+  const brushDragRef = useRef<{ pointerId: number; trackId: string; axis: 'x' | 'y'; lastY: number } | null>(null);
   const tracks = useEditorStore((state) => state.tracks);
   const simulation = useEditorStore((state) =>
     state.previewTrackId ? state.simulationByTrack[state.previewTrackId]?.result : null,
@@ -104,6 +107,8 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
   const setInputDragMode = useEditorStore((state) => state.setInputDragMode);
   const deleteSelectedInput = useEditorStore((state) => state.deleteSelectedInput);
   const cutInputAt = useEditorStore((state) => state.cutInputAt);
+  const beginBrushStroke = useEditorStore((state) => state.beginBrushStroke);
+  const applyBrushDab = useEditorStore((state) => state.applyBrushDab);
   const visibleTracks = tracks.filter((track) => track.visible);
   const timelineOrigin = Math.min(
     0,
@@ -386,6 +391,8 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
         layoutMode={layoutMode}
         setLayoutMode={setLayoutMode}
         resolution={resolution}
+        brushRadiusMs={brushRadiusMs}
+        setBrushRadiusMs={setBrushRadiusMs}
       />
       <div className="timeline-viewport" ref={viewportRef}>
         <div className="timeline-labels" style={{ minHeight: timelineHeight }}>
@@ -430,6 +437,29 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
             const onRuler = event.clientY - box.top < rulerHeight;
             const clickedTime = start + ((event.clientX - box.left) * 1000) / pixelsPerSecond;
             const localY = event.clientY - box.top;
+            if (!onRuler && timelineTool === 'brush') {
+              const y = localY - rulerHeight;
+              let offset = 0;
+              let lane = -1;
+              for (let index = 0; index < laneHeights.length; index += 1) {
+                offset += laneHeights[index];
+                if (y >= 0 && y < offset) {
+                  lane = index;
+                  break;
+                }
+              }
+              const axis = lane === 1 ? 'x' : lane === 2 ? 'y' : null;
+              const track =
+                tracks.find((item) => item.id === useEditorStore.getState().previewTrackId) ??
+                tracks.find((item) => selected.includes(item.id));
+              if (axis && track && !track.locked) {
+                event.currentTarget.setPointerCapture(event.pointerId);
+                setFollowPlayback(false);
+                beginBrushStroke(track.id);
+                brushDragRef.current = { pointerId: event.pointerId, trackId: track.id, axis, lastY: event.clientY };
+              }
+              return;
+            }
             if (
               !onRuler &&
               timelineTool === 'select' &&
@@ -517,6 +547,21 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
             }
           }}
           onPointerMove={(event) => {
+            const box = event.currentTarget.getBoundingClientRect();
+            if (timelineTool === 'brush') {
+              setBrushHover({ x: event.clientX - box.left, y: event.clientY - box.top });
+              const brush = brushDragRef.current;
+              if (brush?.pointerId === event.pointerId) {
+                const laneIndex = brush.axis === 'x' ? 1 : 2;
+                const range = brush.axis === 'x' ? 512 : 384;
+                const dy = event.clientY - brush.lastY;
+                const delta = (-dy / (laneHeights[laneIndex] - 7)) * range;
+                const centerMs = start + ((event.clientX - box.left) * 1000) / pixelsPerSecond;
+                applyBrushDab(brush.trackId, brush.axis, centerMs, brushRadiusMs, delta);
+                brushDragRef.current = { ...brush, lastY: event.clientY };
+                return;
+              }
+            }
             const selection = marqueeRef.current;
             if (selection?.pointerId === event.pointerId) {
               const box = event.currentTarget.getBoundingClientRect();
@@ -614,22 +659,26 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
               return;
             }
             dragRef.current = null;
+            brushDragRef.current = null;
             if (event.currentTarget.hasPointerCapture(event.pointerId))
               event.currentTarget.releasePointerCapture(event.pointerId);
           }}
           onPointerCancel={() => {
             dragRef.current = null;
+            brushDragRef.current = null;
             marqueeRef.current = null;
             setMarquee(null);
           }}
           onLostPointerCapture={() => {
             dragRef.current = null;
+            brushDragRef.current = null;
             marqueeRef.current = null;
             setMarquee(null);
           }}
           onPointerLeave={() => {
             setBladePreview(null);
             setInputHoverTooltip(null);
+            setBrushHover(null);
           }}
           onContextMenu={(event) => {
             event.preventDefault();
@@ -750,6 +799,17 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
               </span>
             ))}
           </div>
+          {timelineTool === 'brush' && brushHover && (
+            <div
+              className="timeline-brush-cursor"
+              style={{
+                left: brushHover.x - (brushRadiusMs * pixelsPerSecond) / 1000,
+                top: brushHover.y - (brushRadiusMs * pixelsPerSecond) / 1000,
+                width: (brushRadiusMs * pixelsPerSecond * 2) / 1000,
+                height: (brushRadiusMs * pixelsPerSecond * 2) / 1000,
+              }}
+            />
+          )}
           {timelineTool === 'cut' && bladePreview && (
             <div
               className="timeline-blade-preview"

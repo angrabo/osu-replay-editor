@@ -257,6 +257,8 @@ export type EditorState = {
   deleteCursorFrame: (trackId: string, timeMs: number) => void;
   moveCursorFrameTime: (trackId: string, fromMs: number, toMs: number) => void;
   drawCursorPath: (trackId: string, points: CursorStrokePoint[]) => void;
+  beginBrushStroke: (trackId: string) => void;
+  applyBrushDab: (trackId: string, axis: 'x' | 'y', centerMs: number, radiusMs: number, delta: number) => void;
   interpolateCursorRange: (trackId: string, startTime: number, endTime: number) => void;
   smoothCursorRange: (trackId: string, startTime: number, endTime: number) => void;
   invertCursorAxis: (axis: 'x' | 'y') => void;
@@ -1425,6 +1427,41 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         selectedCursorFrameMs: range.startMs,
         playing: false,
         lastEditMessage: `Drew cursor path from ${range.startMs} to ${range.endMs} ms on ${track.name}.`,
+      };
+    }),
+  beginBrushStroke: (trackId) =>
+    set((state) => {
+      const track = state.tracks.find((item) => item.id === trackId);
+      if (!track) return {};
+      return {
+        undoStack: [...state.undoStack.slice(-99), snapshot(state.tracks)],
+        redoStack: [],
+        playing: false,
+      };
+    }),
+  applyBrushDab: (trackId, axis, centerMs, radiusMs, delta) =>
+    set((state) => {
+      const track = state.tracks.find((item) => item.id === trackId);
+      if (!track || track.locked || radiusMs <= 0 || delta === 0) return {};
+      const bound = axis === 'x' ? 512 : 384;
+      const frames = track.replay.frames.map((frame) => {
+        const distance = Math.abs(frame.timeMs - centerMs);
+        if (distance >= radiusMs) return frame;
+        const weight = 1 - distance / radiusMs;
+        const eased = weight * weight;
+        const value = axis === 'x' ? frame.x : frame.y;
+        const nextValue = Math.max(0, Math.min(bound, value + delta * eased));
+        return axis === 'x'
+          ? { ...frame, x: Math.round(nextValue * 10) / 10 }
+          : { ...frame, y: Math.round(nextValue * 10) / 10 };
+      });
+      const tracks = state.tracks.map((item) =>
+        item.id === trackId ? { ...item, edited: true, replay: { ...item.replay, frames } } : item,
+      );
+      return {
+        tracks,
+        simulationByTrack: {},
+        lastEditMessage: `Brushed cursor ${axis.toUpperCase()} on ${track.name}.`,
       };
     }),
   interpolateCursorRange: (trackId, startTime, endTime) =>
