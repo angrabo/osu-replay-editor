@@ -6,6 +6,7 @@ import { MapAcquisition, toMapInfo, type AcquisitionAction, type Resolution, typ
 import { AccountDialog } from './AccountDialog';
 import { SettingsDialog } from './SettingsDialog';
 import { ChangelogDialog } from './ChangelogDialog';
+import { UpdateDialog } from './UpdateDialog';
 import { MenuBar } from './components/menu/MenuBar';
 import { Transport } from './components/transport/Transport';
 import { Explorer } from './components/explorer/Explorer';
@@ -261,7 +262,7 @@ export default function App() {
       });
   };
   useKeyboardShortcuts({ openAcquisition, setSettingsOpen, undo, redo, setPlaying });
-  useAutoUpdater();
+  const { pendingUpdate, installing, install, dismiss, checkNow, checkResult } = useAutoUpdater();
 
   const layoutStyle = {
     '--left-width': `${leftWidth}px`,
@@ -398,8 +399,18 @@ export default function App() {
           onOpenFiles={() => openAcquisition('open')}
         />
       )}
-      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <SettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onCheckForUpdates={checkNow}
+          updateCheckResult={checkResult}
+          onOpenChangelog={() => setChangelogOpen(true)}
+        />
+      )}
       {changelogOpen && <ChangelogDialog onClose={() => setChangelogOpen(false)} />}
+      {pendingUpdate && (
+        <UpdateDialog update={pendingUpdate} installing={installing} onInstall={install} onDismiss={dismiss} />
+      )}
       <input
         ref={projectFileInputRef}
         type="file"

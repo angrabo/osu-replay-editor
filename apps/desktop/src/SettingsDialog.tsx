@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { sidecarRequest } from './sidecar';
 import { useEditorStore } from './stores/editor';
+import { APP_VERSION } from './appMeta';
+import type { UpdateCheckResult } from './hooks/useAutoUpdater';
 
 type AccountSettings = { rememberSession: boolean; storageDirectory: string };
 type CategoryId =
@@ -125,7 +127,17 @@ const categories: Category[] = [
   },
 ];
 
-export function SettingsDialog({ onClose }: { onClose: () => void }) {
+export function SettingsDialog({
+  onClose,
+  onCheckForUpdates,
+  updateCheckResult,
+  onOpenChangelog,
+}: {
+  onClose: () => void;
+  onCheckForUpdates: () => void;
+  updateCheckResult: UpdateCheckResult;
+  onOpenChangelog: () => void;
+}) {
   const [settings, setSettings] = useState<AccountSettings | null>(null);
   const [remember, setRemember] = useState(true);
   const [active, setActive] = useState<CategoryId>('general');
@@ -248,7 +260,38 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                     </small>
                   </div>
                 </div>
-                {category.id === 'account' ? (
+                {category.id === 'general' ? (
+                  <>
+                    <div className="setting-preview">
+                      <div>
+                        <strong>Version {APP_VERSION}</strong>
+                        <small>
+                          {updateCheckResult === 'checking'
+                            ? 'Checking for updates…'
+                            : updateCheckResult === 'up-to-date'
+                              ? "You're on the latest version."
+                              : updateCheckResult === 'error'
+                                ? 'Could not check for updates.'
+                                : 'Check GitHub for a newer signed build.'}
+                        </small>
+                      </div>
+                      <button
+                        className="primary-button"
+                        disabled={updateCheckResult === 'checking'}
+                        onClick={onCheckForUpdates}
+                      >
+                        Check for updates
+                      </button>
+                    </div>
+                    <div className="setting-preview">
+                      <div>
+                        <strong>Changelog</strong>
+                        <small>See what changed in this and past versions.</small>
+                      </div>
+                      <button onClick={onOpenChangelog}>View changelog</button>
+                    </div>
+                  </>
+                ) : category.id === 'account' ? (
                   <>
                     <label className="setting-check">
                       <input
