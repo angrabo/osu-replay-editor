@@ -404,6 +404,7 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
           onCheckForUpdates={checkNow}
           updateCheckResult={checkResult}
+          onOpenChangelog={() => setChangelogOpen(true)}
         />
       )}
       {changelogOpen && <ChangelogDialog onClose={() => setChangelogOpen(false)} />}

@@ -131,10 +131,12 @@ export function SettingsDialog({
   onClose,
   onCheckForUpdates,
   updateCheckResult,
+  onOpenChangelog,
 }: {
   onClose: () => void;
   onCheckForUpdates: () => void;
   updateCheckResult: UpdateCheckResult;
+  onOpenChangelog: () => void;
 }) {
   const [settings, setSettings] = useState<AccountSettings | null>(null);
   const [remember, setRemember] = useState(true);
@@ -259,23 +261,36 @@ export function SettingsDialog({
                   </div>
                 </div>
                 {category.id === 'general' ? (
-                  <div className="setting-preview">
-                    <div>
-                      <strong>Version {APP_VERSION}</strong>
-                      <small>
-                        {updateCheckResult === 'checking'
-                          ? 'Checking for updates…'
-                          : updateCheckResult === 'up-to-date'
-                            ? "You're on the latest version."
-                            : updateCheckResult === 'error'
-                              ? 'Could not check for updates.'
-                              : 'Check GitHub for a newer signed build.'}
-                      </small>
+                  <>
+                    <div className="setting-preview">
+                      <div>
+                        <strong>Version {APP_VERSION}</strong>
+                        <small>
+                          {updateCheckResult === 'checking'
+                            ? 'Checking for updates…'
+                            : updateCheckResult === 'up-to-date'
+                              ? "You're on the latest version."
+                              : updateCheckResult === 'error'
+                                ? 'Could not check for updates.'
+                                : 'Check GitHub for a newer signed build.'}
+                        </small>
+                      </div>
+                      <button
+                        className="primary-button"
+                        disabled={updateCheckResult === 'checking'}
+                        onClick={onCheckForUpdates}
+                      >
+                        Check for updates
+                      </button>
                     </div>
-                    <button disabled={updateCheckResult === 'checking'} onClick={onCheckForUpdates}>
-                      Check for updates
-                    </button>
-                  </div>
+                    <div className="setting-preview">
+                      <div>
+                        <strong>Changelog</strong>
+                        <small>See what changed in this and past versions.</small>
+                      </div>
+                      <button onClick={onOpenChangelog}>View changelog</button>
+                    </div>
+                  </>
                 ) : category.id === 'account' ? (
                   <>
                     <label className="setting-check">
