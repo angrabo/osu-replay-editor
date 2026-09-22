@@ -1,26 +1,65 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import type { Update } from '@tauri-apps/plugin-updater';
 import { UPDATER_ENABLED } from '../appMeta';
-import { useEditorStore } from '../stores/editor';
+
+export type PendingUpdate = { version: string; body: string | null };
+export type UpdateCheckResult = 'idle' | 'checking' | 'up-to-date' | 'error';
 
 /// <summary>
-/// Checks the configured GitHub release endpoint for a newer signed build and, if found,
-/// downloads/installs it and relaunches. No-ops entirely while UPDATER_ENABLED is false.
+/// Checks the configured GitHub release endpoint for a newer signed build (once on mount, and
+/// on demand via checkNow — e.g. a "Check for updates" settings button). Exposes the pending
+/// update, if any, so the UI can ask the user before downloading, installing, and relaunching.
+/// checkNow always resolves (never throws); callers read checkResult for the outcome.
 /// </summary>
 export function useAutoUpdater() {
-  useEffect(() => {
-    if (!UPDATER_ENABLED) return;
+  const [pendingUpdate, setPendingUpdate] = useState<PendingUpdate | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [checkResult, setCheckResult] = useState<UpdateCheckResult>('idle');
+  const [updateHandle, setUpdateHandle] = useState<Update | null>(null);
+
+  const checkNow = () => {
+    if (!UPDATER_ENABLED) {
+      setCheckResult('error');
+      return;
+    }
+    setCheckResult('checking');
     void (async () => {
       try {
         const { check } = await import('@tauri-apps/plugin-updater');
-        const { relaunch } = await import('@tauri-apps/plugin-process');
         const update = await check();
-        if (!update) return;
-        useEditorStore.setState({ lastEditMessage: `Downloading update ${update.version}…` });
-        await update.downloadAndInstall();
-        await relaunch();
+        if (update) {
+          setUpdateHandle(update);
+          setPendingUpdate({ version: update.version, body: update.body ?? null });
+          setCheckResult('idle');
+        } else {
+          setCheckResult('up-to-date');
+        }
       } catch {
-        // Offline, no release yet, or running outside Tauri — silently skip.
+        setCheckResult('error');
       }
     })();
+  };
+
+  useEffect(() => {
+    if (UPDATER_ENABLED) checkNow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const install = () => {
+    if (!updateHandle) return;
+    setInstalling(true);
+    void (async () => {
+      try {
+        const { relaunch } = await import('@tauri-apps/plugin-process');
+        await updateHandle.downloadAndInstall();
+        await relaunch();
+      } catch {
+        setInstalling(false);
+      }
+    })();
+  };
+
+  const dismiss = () => setPendingUpdate(null);
+
+  return { pendingUpdate, installing, install, dismiss, checkNow, checkResult };
 }
