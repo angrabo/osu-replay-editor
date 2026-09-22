@@ -3,9 +3,10 @@ using System.Text.Json;
 namespace ReplayEditor.Api.Sessions;
 
 /// <summary>
-/// Resolves the osu! OAuth client id/secret: environment variables first (set at build time by
-/// the release workflow, baked into app.config.json so the shipped app still has them at
-/// runtime), falling back to a local app.config.json for contributors who want to override it.
+/// Resolves the osu! OAuth client id/secret: environment variables first, then a local
+/// app.config.json override, then the values baked into <see cref="OsuClientSecrets"/> at build
+/// time (empty for local dev builds, filled in by the release workflow for shipped installers —
+/// that's what makes a released build work without the end user configuring anything).
 /// </summary>
 internal static class OsuClientCredentials
 {
@@ -22,6 +23,12 @@ internal static class OsuClientCredentials
             var fromFile = ReadFromConfigFile();
             clientId = string.IsNullOrWhiteSpace(clientId) ? fromFile.ClientId : clientId;
             clientSecret = string.IsNullOrWhiteSpace(clientSecret) ? fromFile.ClientSecret : clientSecret;
+        }
+
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+        {
+            clientId = OsuClientSecrets.ClientId;
+            clientSecret = OsuClientSecrets.ClientSecret;
         }
 
         cached = (clientId, clientSecret);

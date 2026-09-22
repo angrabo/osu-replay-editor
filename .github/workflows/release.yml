@@ -28,14 +28,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Write app.config.json
+      # Env vars at this point only exist for this CI job — they never reach the installed app on
+      # an end user's machine. Bake the real client id/secret into the compiled sidecar instead,
+      # so a released build works without the user setting anything up.
+      - name: Bake osu! client credentials into the sidecar
         shell: pwsh
         env:
           OSU_CLIENT_ID: ${{ vars.OSU_CLIENT_ID }}
           OSU_CLIENT_SECRET: ${{ vars.OSU_CLIENT_SECRET }}
         run: |
-          @{ osu = @{ clientId = $env:OSU_CLIENT_ID; clientSecret = $env:OSU_CLIENT_SECRET } } |
-            ConvertTo-Json | Set-Content -Path app.config.json -Encoding utf8
+          if ([string]::IsNullOrWhiteSpace($env:OSU_CLIENT_ID) -or [string]::IsNullOrWhiteSpace($env:OSU_CLIENT_SECRET)) {
+            throw 'OSU_CLIENT_ID / OSU_CLIENT_SECRET repository variables are not set (Settings > Secrets and variables > Actions > Variables).'
+          }
+          $path = 'engine/ReplayEditor.Api/Sessions/OsuClientSecrets.cs'
+          (Get-Content -LiteralPath $path -Raw) `
+            -replace 'ClientId = "[^"]*"', "ClientId = `"$env:OSU_CLIENT_ID`"" `
+            -replace 'ClientSecret = "[^"]*"', "ClientSecret = `"$env:OSU_CLIENT_SECRET`"" |
+            Set-Content -LiteralPath $path -Encoding utf8
 
       - name: Publish sidecar
         run: pwsh scripts/prepare-sidecar.ps1 -Configuration Release
@@ -45,8 +54,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          OSU_CLIENT_ID: ${{ vars.OSU_CLIENT_ID }}
-          OSU_CLIENT_SECRET: ${{ vars.OSU_CLIENT_SECRET }}
         with:
           projectPath: apps/desktop
           tagName: ${{ github.ref_name }}

@@ -24,10 +24,7 @@
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
     "externalBin": ["binaries/replay-editor-sidecar"],
-    "createUpdaterArtifacts": true,
-    "resources": {
-      "../../../app.config.json": "app.config.json"
-    }
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "updater": {
