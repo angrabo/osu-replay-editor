@@ -78,7 +78,9 @@ export function BeatmapCanvas({
     points: CursorStrokePoint[];
     snapEnd: { x: number; y: number } | null;
   } | null>(null);
+  const brushDragRef = useRef<{ pointerId: number; trackId: string; x: number; y: number } | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [brushHover, setBrushHover] = useState<{ x: number; y: number } | null>(null);
   const [cursorDraft, setCursorDraft] = useState<{ x: number; y: number } | null>(null);
   const [strokeDraft, setStrokeDraft] = useState<CursorStrokePoint[]>([]);
   const [nodeMenu, setNodeMenu] = useState<{ x: number; y: number; timeMs: number } | null>(null);
@@ -138,6 +140,9 @@ export function BeatmapCanvas({
   const setCursorFramePosition = useEditorStore((state) => state.setCursorFramePosition);
   const deleteCursorFrame = useEditorStore((state) => state.deleteCursorFrame);
   const drawCursorPath = useEditorStore((state) => state.drawCursorPath);
+  const brushRadiusPx = useEditorStore((state) => state.brushRadiusPx);
+  const beginBrushStroke = useEditorStore((state) => state.beginBrushStroke);
+  const applyBrushDab = useEditorStore((state) => state.applyBrushDab);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -489,6 +494,17 @@ export function BeatmapCanvas({
           setStrokeDraft([...strokeRef.current.points]);
           return;
         }
+        if (tool === 'brush') {
+          if (!previewTrack || previewTrack.locked) return;
+          const point = pointerPoint(event.clientX, event.clientY);
+          if (!point) return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setPlaying(false);
+          beginBrushStroke(previewTrack.id);
+          brushDragRef.current = { pointerId: event.pointerId, trackId: previewTrack.id, ...point };
+          return;
+        }
         if (tool === 'select') {
           if (!previewTrack || previewTrack.locked) return;
           const point = pointerPoint(event.clientX, event.clientY);
@@ -546,6 +562,24 @@ export function BeatmapCanvas({
           setCursorFramePosition(previewTrack.id, closest.frame.timeMs, point.x, point.y);
       }}
       onPointerMove={(event) => {
+        if (tool === 'brush') {
+          const point = pointerPoint(event.clientX, event.clientY);
+          if (point) setBrushHover(point);
+          const brush = brushDragRef.current;
+          if (brush?.pointerId === event.pointerId && point) {
+            applyBrushDab(
+              brush.trackId,
+              point.x,
+              point.y,
+              brushRadiusPx,
+              point.x - brush.x,
+              point.y - brush.y,
+              playhead - cursorTrailMs,
+              playhead + cursorTrailMs,
+            );
+            brushDragRef.current = { ...brush, x: point.x, y: point.y };
+          }
+        }
         const drag = panDragRef.current;
         const cursorDrag = cursorDragRef.current;
         const stroke = strokeRef.current;
@@ -584,18 +618,25 @@ export function BeatmapCanvas({
       onPointerUp={(event) => {
         if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, true, event.clientX, event.clientY);
         else if (cursorDragRef.current) finishCursorDrag(event.currentTarget, event.pointerId);
-        else finishPan(event.currentTarget);
+        else if (brushDragRef.current?.pointerId === event.pointerId) {
+          brushDragRef.current = null;
+          if (event.currentTarget.hasPointerCapture(event.pointerId))
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        } else finishPan(event.currentTarget);
       }}
       onPointerCancel={(event) => {
         if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, false);
         else if (cursorDragRef.current) finishCursorDrag(event.currentTarget, event.pointerId);
+        else if (brushDragRef.current?.pointerId === event.pointerId) brushDragRef.current = null;
         else finishPan(event.currentTarget);
       }}
       onLostPointerCapture={(event) => {
         if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, false);
         else if (cursorDragRef.current) finishCursorDrag(event.currentTarget, event.pointerId);
+        else if (brushDragRef.current?.pointerId === event.pointerId) brushDragRef.current = null;
         else finishPan(event.currentTarget);
       }}
+      onPointerLeave={() => setBrushHover(null)}
       onWheel={(event) => {
         event.preventDefault();
         const direction: -1 | 1 = event.deltaY > 0 ? 1 : -1;
@@ -687,6 +728,17 @@ export function BeatmapCanvas({
             />
           );
         })}
+      {interactive && tool === 'brush' && brushHover && (
+        <div
+          className="playfield-brush-cursor"
+          style={{
+            left: originX + brushHover.x * scale,
+            top: originY + brushHover.y * scale,
+            width: brushRadiusPx * scale * 2,
+            height: brushRadiusPx * scale * 2,
+          }}
+        />
+      )}
       {interactive && nodeMenu && previewTrack && (
         <div
           className="cursor-node-menu"

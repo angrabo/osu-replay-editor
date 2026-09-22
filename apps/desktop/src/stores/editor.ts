@@ -56,7 +56,7 @@ export type ImportedReplay = {
   keyEvents: ReplayKeyEvent[];
 };
 
-export type Tool = 'select' | 'hand' | 'draw' | 'curve' | 'split' | 'zoom';
+export type Tool = 'select' | 'hand' | 'draw' | 'curve' | 'split' | 'zoom' | 'brush';
 export type Snap = 'off' | 'hit-window' | 'hit-object' | 'all' | 'timing-point' | 'replay-frame';
 export type BeatmapTimelineObject = {
   startTime: number;
@@ -179,6 +179,7 @@ export type EditorState = {
   timelineDefaultLaneHeight: number;
   timelineLaneHeightRequest: number;
   tool: Tool;
+  brushRadiusPx: number;
   snap: Snap;
   selectedInput: InputSelection | null;
   selectedInputs: InputSelection[];
@@ -241,6 +242,7 @@ export type EditorState = {
   saveDefaultTimelineLaneHeight: (value: number) => void;
   resetTimelineLaneHeights: () => void;
   setTool: (tool: Tool) => void;
+  setBrushRadiusPx: (radius: number) => void;
   setSnap: (snap: Snap) => void;
   selectInput: (input: InputSelection | null, additive?: boolean) => void;
   selectInputs: (inputs: InputSelection[], additive?: boolean) => void;
@@ -258,7 +260,16 @@ export type EditorState = {
   moveCursorFrameTime: (trackId: string, fromMs: number, toMs: number) => void;
   drawCursorPath: (trackId: string, points: CursorStrokePoint[]) => void;
   beginBrushStroke: (trackId: string) => void;
-  applyBrushDab: (trackId: string, axis: 'x' | 'y', centerMs: number, radiusMs: number, delta: number) => void;
+  applyBrushDab: (
+    trackId: string,
+    centerX: number,
+    centerY: number,
+    radiusPx: number,
+    deltaX: number,
+    deltaY: number,
+    minMs: number,
+    maxMs: number,
+  ) => void;
   interpolateCursorRange: (trackId: string, startTime: number, endTime: number) => void;
   smoothCursorRange: (trackId: string, startTime: number, endTime: number) => void;
   invertCursorAxis: (axis: 'x' | 'y') => void;
@@ -721,6 +732,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   timelineDefaultLaneHeight: readTimelineLaneHeight(),
   timelineLaneHeightRequest: 0,
   tool: 'select',
+  brushRadiusPx: 40,
   snap: 'off',
   selectedInput: null,
   selectedInputs: [],
@@ -1142,6 +1154,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       timelineLaneHeightRequest: state.timelineLaneHeightRequest + 1,
     })),
   setTool: (tool) => set({ tool }),
+  setBrushRadiusPx: (radius) => set({ brushRadiusPx: Math.max(4, Math.min(200, radius)) }),
   setSnap: (snap) => set({ snap }),
   selectInput: (input, additive = false) =>
     set((state) => {
@@ -1439,30 +1452,24 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         playing: false,
       };
     }),
-  applyBrushDab: (trackId, axis, centerMs, radiusMs, delta) =>
+  applyBrushDab: (trackId, centerX, centerY, radiusPx, deltaX, deltaY, minMs, maxMs) =>
     set((state) => {
       const track = state.tracks.find((item) => item.id === trackId);
-      if (!track || track.locked || radiusMs <= 0 || delta === 0) return {};
-      const bound = axis === 'x' ? 512 : 384;
+      if (!track || track.locked || radiusPx <= 0 || (deltaX === 0 && deltaY === 0)) return {};
       const frames = track.replay.frames.map((frame) => {
-        const distance = Math.abs(frame.timeMs - centerMs);
-        if (distance >= radiusMs) return frame;
-        const weight = 1 - distance / radiusMs;
+        if (frame.timeMs < minMs || frame.timeMs > maxMs) return frame;
+        const distance = Math.hypot(frame.x - centerX, frame.y - centerY);
+        if (distance >= radiusPx) return frame;
+        const weight = 1 - distance / radiusPx;
         const eased = weight * weight;
-        const value = axis === 'x' ? frame.x : frame.y;
-        const nextValue = Math.max(0, Math.min(bound, value + delta * eased));
-        return axis === 'x'
-          ? { ...frame, x: Math.round(nextValue * 10) / 10 }
-          : { ...frame, y: Math.round(nextValue * 10) / 10 };
+        const nextX = Math.max(0, Math.min(512, frame.x + deltaX * eased));
+        const nextY = Math.max(0, Math.min(384, frame.y + deltaY * eased));
+        return { ...frame, x: Math.round(nextX * 10) / 10, y: Math.round(nextY * 10) / 10 };
       });
       const tracks = state.tracks.map((item) =>
         item.id === trackId ? { ...item, edited: true, replay: { ...item.replay, frames } } : item,
       );
-      return {
-        tracks,
-        simulationByTrack: {},
-        lastEditMessage: `Brushed cursor ${axis.toUpperCase()} on ${track.name}.`,
-      };
+      return { tracks, simulationByTrack: {}, lastEditMessage: `Brushed cursor path on ${track.name}.` };
     }),
   interpolateCursorRange: (trackId, startTime, endTime) =>
     set((state) => {

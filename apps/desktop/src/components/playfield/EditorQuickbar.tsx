@@ -1,4 +1,15 @@
-import { Eye, Hand, MousePointer2, Pencil, Scan, Scissors, SlidersHorizontal, Spline, Clock3 } from 'lucide-react';
+import {
+  Brush,
+  Eye,
+  Hand,
+  MousePointer2,
+  Pencil,
+  Scan,
+  Scissors,
+  SlidersHorizontal,
+  Spline,
+  Clock3,
+} from 'lucide-react';
 import { useEditorStore, type Tool } from '../../stores/editor';
 
 export function EditorQuickbar() {
@@ -22,11 +33,14 @@ export function EditorQuickbar() {
   const setCursorSmoothing = useEditorStore((state) => state.setCursorSmoothing);
   const drawRangeSnap = useEditorStore((state) => state.drawRangeSnap);
   const setDrawRangeSnap = useEditorStore((state) => state.setDrawRangeSnap);
+  const brushRadiusPx = useEditorStore((state) => state.brushRadiusPx);
+  const setBrushRadiusPx = useEditorStore((state) => state.setBrushRadiusPx);
   const tools: { id: Tool; icon: React.ReactNode; label: string }[] = [
     { id: 'select', icon: <MousePointer2 size={16} />, label: 'Move cursor frame' },
     { id: 'hand', icon: <Hand size={16} />, label: 'Pan playfield' },
     { id: 'draw', icon: <Pencil size={16} />, label: 'Draw cursor path in selected time range' },
     { id: 'curve', icon: <Spline size={16} />, label: 'Edit cursor line nodes' },
+    { id: 'brush', icon: <Brush size={16} />, label: 'Warp nearby cursor points, strongest at the center' },
     { id: 'split', icon: <Scissors size={16} />, label: 'Split selected input at playhead' },
     { id: 'zoom', icon: <Scan size={16} />, label: 'Zoom playfield' },
   ];
@@ -64,6 +78,32 @@ export function EditorQuickbar() {
                   onChange={(event) => setDrawRangeSnap(event.target.checked)}
                 />
                 <span>Snap drawing to range endpoints</span>
+              </label>
+            </div>
+          </div>
+        ) : item.id === 'brush' ? (
+          <div className="quickbar-popover-host" key={item.id}>
+            <button
+              className={tool === item.id ? 'active' : ''}
+              title={item.label}
+              aria-label={item.label}
+              onClick={() => setTool(item.id)}
+            >
+              {item.icon}
+            </button>
+            <div className="premiere-popover quickbar-popover">
+              <strong>Brush radius</strong>
+              <small>Nearby cursor points warp toward the drag, strongest at the brush center.</small>
+              <label>
+                <span>Radius</span>
+                <input
+                  type="number"
+                  min="4"
+                  max="200"
+                  value={brushRadiusPx}
+                  onChange={(event) => setBrushRadiusPx(Number(event.target.value) || 4)}
+                />
+                <span>px</span>
               </label>
             </div>
           </div>

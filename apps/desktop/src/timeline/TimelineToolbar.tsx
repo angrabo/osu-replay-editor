@@ -1,23 +1,12 @@
 import { useEffect, useState } from 'react';
-import {
-  Activity,
-  Brush,
-  ChevronRight,
-  Hand,
-  Layers3,
-  Magnet,
-  MousePointer2,
-  RefreshCw,
-  Rows3,
-  Scissors,
-} from 'lucide-react';
+import { Activity, ChevronRight, Hand, Layers3, Magnet, MousePointer2, RefreshCw, Rows3, Scissors } from 'lucide-react';
 import { useEditorStore } from '../stores/editor';
 import type { Resolution } from '../MapAcquisition';
 import { useSimulationRunner } from '../hooks/useSimulationRunner';
 
 const baseLaneHeight = 48;
 export type TimelineLayout = 'stack' | 'overlap';
-export type TimelineTool = 'select' | 'hand' | 'cut' | 'brush';
+export type TimelineTool = 'select' | 'hand' | 'cut';
 
 const timelineTools: { id: TimelineTool; label: string; hint: string; icon: React.ReactNode }[] = [
   {
@@ -38,12 +27,6 @@ const timelineTools: { id: TimelineTool; label: string; hint: string; icon: Reac
     hint: 'Preview and split an input at the pointer without moving the playhead',
     icon: <Scissors size={15} />,
   },
-  {
-    id: 'brush',
-    label: 'Brush (U)',
-    hint: 'Drag on the Cursor X/Y lanes to warp nearby frames, strongest at the brush center',
-    icon: <Brush size={15} />,
-  },
 ];
 
 export function TimelineToolbar({
@@ -52,16 +35,12 @@ export function TimelineToolbar({
   layoutMode,
   setLayoutMode,
   resolution,
-  brushRadiusMs,
-  setBrushRadiusMs,
 }: {
   timelineTool: TimelineTool;
   setTimelineTool: (tool: TimelineTool) => void;
   layoutMode: TimelineLayout;
   setLayoutMode: (updater: (value: TimelineLayout) => TimelineLayout) => void;
   resolution: Resolution | null;
-  brushRadiusMs: number;
-  setBrushRadiusMs: (value: number) => void;
 }) {
   const snap = useEditorStore((state) => state.snap);
   const setSnap = useEditorStore((state) => state.setSnap);
@@ -94,20 +73,6 @@ export function TimelineToolbar({
           <div className="timeline-tool-flyout">
             <strong>{item.label}</strong>
             <span>{item.hint}</span>
-            {item.id === 'brush' && (
-              <label className="timeline-lane-height" onClick={(event) => event.stopPropagation()}>
-                <span>Radius</span>
-                <input
-                  type="number"
-                  min="10"
-                  max="2000"
-                  step="10"
-                  value={brushRadiusMs}
-                  onChange={(event) => setBrushRadiusMs(Math.max(10, Number(event.target.value) || 10))}
-                />
-                <span>ms</span>
-              </label>
-            )}
           </div>
         </div>
       ))}
