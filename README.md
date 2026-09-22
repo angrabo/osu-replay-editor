@@ -88,6 +88,15 @@ doesn't exist yet. Fill in `osu.clientId`/`osu.clientSecret` there, or set
 your own osu! OAuth client. Released builds get real values baked in by the
 release workflow from repository variables — see `.github/workflows/release.yml`.
 
+### Portable Windows build
+
+Pushing a `v*` tag runs the GitHub Actions release workflow. It builds a
+`windows-x64-portable.zip` containing the Tauri app, its sidecar, and a short
+README. The ZIP is available both in the Actions run artifacts and on the draft
+GitHub Release. The workflow can also be run manually with an existing release
+tag. Extract the ZIP before running `osu-replay-editor.exe`; WebView2 Runtime is
+required on the target PC.
+
 ### Other useful commands
 
 ```powershell

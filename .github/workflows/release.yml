@@ -4,14 +4,31 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag (for example v0.1.5)'
+        required: true
+        type: string
 
 jobs:
   release:
     runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     permissions:
       contents: write
     steps:
+      - name: Validate release tag
+        shell: pwsh
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "Expected a release tag like v0.1.5, got $env:RELEASE_TAG"
+          }
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -56,32 +73,28 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
-          tagName: ${{ github.ref_name }}
-          releaseName: 'osu! Replay Editor ${{ github.ref_name }}'
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: 'osu! Replay Editor ${{ env.RELEASE_TAG }}'
           releaseDraft: true
           prerelease: false
 
-      - name: Build and upload portable ZIP
+      - name: Build portable ZIP
+        id: portable
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $targetDir = 'apps/desktop/src-tauri/target/release'
           $app = Join-Path $targetDir 'osu-replay-editor.exe'
           if (-not (Test-Path -LiteralPath $app)) { throw "Portable app executable not found at $app" }
 
-          $sidecar = Get-ChildItem -Path $targetDir -Filter 'replay-editor-sidecar*.exe' | Select-Object -First 1
-          if (-not $sidecar) {
-            $sidecar = Get-ChildItem -Path 'apps/desktop/src-tauri/binaries' -Filter 'replay-editor-sidecar*.exe' | Select-Object -First 1
-          }
-          if (-not $sidecar) { throw 'Portable sidecar executable was not produced.' }
+          $sidecar = 'apps/desktop/src-tauri/binaries/replay-editor-sidecar-x86_64-pc-windows-msvc.exe'
+          if (-not (Test-Path -LiteralPath $sidecar)) { throw "Portable sidecar executable not found at $sidecar" }
 
-          $tag = '${{ github.ref_name }}'
+          $tag = $env:RELEASE_TAG
           $portableName = "osu-replay-editor-$tag-windows-x64-portable"
           $portableDir = Join-Path $env:RUNNER_TEMP $portableName
           New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
           Copy-Item -LiteralPath $app -Destination $portableDir
-          Copy-Item -LiteralPath $sidecar.FullName -Destination $portableDir
+          Copy-Item -LiteralPath $sidecar -Destination $portableDir
           @'
           osu! Replay Editor portable for Windows x64
 
@@ -91,7 +104,31 @@ jobs:
 
           $zip = Join-Path $env:RUNNER_TEMP "$portableName.zip"
           Compress-Archive -Path (Join-Path $portableDir '*') -DestinationPath $zip -CompressionLevel Optimal
-          gh release upload $tag $zip --clobber --repo ${{ github.repository }}
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
+          try {
+            $entries = @($archive.Entries | ForEach-Object FullName)
+            foreach ($required in @('osu-replay-editor.exe', 'replay-editor-sidecar-x86_64-pc-windows-msvc.exe', 'README.txt')) {
+              if ($required -notin $entries) { throw "Portable ZIP is missing $required" }
+            }
+          } finally {
+            $archive.Dispose()
+          }
+          "zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Attach portable ZIP to Actions run
+        uses: actions/upload-artifact@v4
+        with:
+          name: osu-replay-editor-windows-x64-portable
+          path: ${{ steps.portable.outputs.zip }}
+          if-no-files-found: error
+
+      - name: Attach portable ZIP to draft release
+        shell: pwsh
+        run: |
+          gh release upload $env:RELEASE_TAG $env:PORTABLE_ZIP --clobber --repo ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PORTABLE_ZIP: ${{ steps.portable.outputs.zip }}
 
       # tauri-action's built-in includeUpdaterJson doesn't reliably emit latest.json for the
       # NSIS target (it looks for a *.nsis.zip.sig, but Tauri 2 signs the setup.exe directly) —
@@ -107,7 +144,7 @@ jobs:
           $sigPath = "$($installer.FullName).sig"
           if (-not (Test-Path $sigPath)) { throw "No signature file found at $sigPath" }
           $signature = Get-Content -LiteralPath $sigPath -Raw
-          $tag = '${{ github.ref_name }}'
+          $tag = $env:RELEASE_TAG
           $version = $tag.TrimStart('v')
           $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/$tag/$([Uri]::EscapeDataString($installer.Name))"
           $manifest = @{
