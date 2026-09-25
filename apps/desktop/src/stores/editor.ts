@@ -180,6 +180,8 @@ export type EditorState = {
   timelineLaneHeightRequest: number;
   tool: Tool;
   brushRadiusPx: number;
+  brushStrength: number;
+  magneticMove: boolean;
   snap: Snap;
   selectedInput: InputSelection | null;
   selectedInputs: InputSelection[];
@@ -200,6 +202,7 @@ export type EditorState = {
   setPreviewTrack: (id: string | null) => void;
   importReplay: (replay: ImportedReplay) => void;
   clearReplays: () => void;
+  removeTracks: (ids: readonly string[]) => void;
   archiveActiveMap: (mapInfo?: MapInfo) => void;
   promoteArchivedTracks: (beatmapHash: string) => void;
   setMapLoadStatus: (beatmapHash: string, status: 'ok' | 'error') => void;
@@ -244,6 +247,8 @@ export type EditorState = {
   resetTimelineLaneHeights: () => void;
   setTool: (tool: Tool) => void;
   setBrushRadiusPx: (radius: number) => void;
+  setBrushStrength: (strength: number) => void;
+  setMagneticMove: (enabled: boolean) => void;
   setSnap: (snap: Snap) => void;
   selectInput: (input: InputSelection | null, additive?: boolean) => void;
   selectInputs: (inputs: InputSelection[], additive?: boolean) => void;
@@ -262,6 +267,14 @@ export type EditorState = {
   moveCursorFrameTime: (trackId: string, fromMs: number, toMs: number) => void;
   drawCursorPath: (trackId: string, points: CursorStrokePoint[]) => void;
   beginBrushStroke: (trackId: string) => void;
+  dragCursorNodes: (
+    trackId: string,
+    originFrames: readonly ReplayFrame[],
+    nodeTimes: readonly number[],
+    deltaX: number,
+    deltaY: number,
+    magnetic: boolean,
+  ) => void;
   applyBrushDab: (
     trackId: string,
     centerX: number,
@@ -595,6 +608,54 @@ export function editReplayInput(
   return editReplayInputs(replay, [{ original, next }]);
 }
 
+const replayFrameMaxGapMs = 17;
+
+function isPathCorner(frames: readonly ReplayFrame[], index: number): boolean {
+  const previous = frames[index - 1];
+  const current = frames[index];
+  const next = frames[index + 1];
+  if (!previous || !next) return false;
+  const ax = current.x - previous.x;
+  const ay = current.y - previous.y;
+  const bx = next.x - current.x;
+  const by = next.y - current.y;
+  const lengths = Math.hypot(ax, ay) * Math.hypot(bx, by);
+  // A turn sharper than ~100° is a deliberate corner or cursor reversal: keep it pinned.
+  return lengths > 0.25 && (ax * bx + ay * by) / lengths < -0.17;
+}
+
+// Per-frame pull (0..1) for a magnetic drag: dragged frames follow fully, and neighbours along
+// the path follow with a smooth falloff by arc length so the line bends without kinks. Reach
+// grows with the drag (always at least the two nearest neighbours per side) and stops at corners.
+export function magneticDragWeights(
+  frames: readonly ReplayFrame[],
+  draggedIndices: readonly number[],
+  dragDistance: number,
+): number[] {
+  const weights = frames.map(() => 0);
+  for (const start of draggedIndices) {
+    weights[start] = 1;
+    for (const direction of [-1, 1] as const) {
+      const secondNeighbour = frames[start + direction * 2] ?? frames[start + direction];
+      let arcToSecond = 0;
+      for (let index = start; secondNeighbour && index !== start + direction * 2; index += direction) {
+        const next = frames[index + direction];
+        if (!next) break;
+        arcToSecond += Math.hypot(next.x - frames[index].x, next.y - frames[index].y);
+      }
+      const reach = Math.min(400, Math.max(dragDistance * 3, arcToSecond + 1, 12));
+      let arc = 0;
+      for (let index = start + direction; index >= 0 && index < frames.length; index += direction) {
+        arc += Math.hypot(frames[index].x - frames[index - direction].x, frames[index].y - frames[index - direction].y);
+        if (arc >= reach || isPathCorner(frames, index)) break;
+        const falloff = 1 - arc / reach;
+        weights[index] = Math.max(weights[index], falloff * falloff * (3 - 2 * falloff));
+      }
+    }
+  }
+  return weights;
+}
+
 export function drawReplayCursorPath(
   replay: ImportedReplay,
   startMs: number,
@@ -633,10 +694,25 @@ export function drawReplayCursorPath(
     stroke[0].timeMs = start;
     stroke[stroke.length - 1].timeMs = end;
   }
-  const frames = replay.frames.map((frame) => ({ ...frame })).sort((first, second) => first.timeMs - second.timeMs);
-  ensureFrame(frames, start);
-  ensureFrame(frames, end);
-  for (const point of stroke) ensureFrame(frames, point.timeMs);
+  const sorted = replay.frames.map((frame) => ({ ...frame })).sort((first, second) => first.timeMs - second.timeMs);
+  ensureFrame(sorted, start);
+  ensureFrame(sorted, end);
+  // Resample the drawn range like a real osu! replay: ~60 fps frames plus the frames where an
+  // input changes, instead of one frame per pointer sample.
+  const frames = sorted.filter(
+    (frame, index) =>
+      index === 0 ||
+      frame.timeMs <= start ||
+      frame.timeMs >= end ||
+      logicalKeys(frame.keys) !== logicalKeys(sorted[index - 1].keys),
+  );
+  const anchors = frames.filter((frame) => frame.timeMs >= start && frame.timeMs <= end).map((frame) => frame.timeMs);
+  for (let index = 0; index + 1 < anchors.length; index++) {
+    const from = anchors[index];
+    const to = anchors[index + 1];
+    const count = Math.ceil((to - from) / replayFrameMaxGapMs);
+    for (let step = 1; step < count; step++) ensureFrame(frames, from + Math.round((step * (to - from)) / count));
+  }
   let segment = 0;
   for (const frame of frames) {
     if (frame.timeMs < start || frame.timeMs > end) continue;
@@ -736,6 +812,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   timelineLaneHeightRequest: 0,
   tool: 'select',
   brushRadiusPx: 40,
+  brushStrength: 0.35,
+  magneticMove: false,
   snap: 'off',
   selectedInput: null,
   selectedInputs: [],
@@ -819,6 +897,42 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       undoStack: [],
       redoStack: [],
       simulationByTrack: {},
+    }),
+  removeTracks: (ids) =>
+    set((state) => {
+      const removed = new Set(ids);
+      const tracks = state.tracks.filter((track) => !removed.has(track.id));
+      const archivedTracks = state.archivedTracks.filter((track) => !removed.has(track.id));
+      if (tracks.length === state.tracks.length && archivedTracks.length === state.archivedTracks.length) return {};
+      const count = state.tracks.length + state.archivedTracks.length - tracks.length - archivedTracks.length;
+      const message = `Removed ${count} replay${count === 1 ? '' : 's'} from the project.`;
+      if (tracks.length === state.tracks.length) return { archivedTracks, lastEditMessage: message };
+      const keep = <T extends { trackId: string }>(item: T | null) =>
+        item && !removed.has(item.trackId) ? item : null;
+      const simulationByTrack = Object.fromEntries(
+        Object.entries(state.simulationByTrack).filter(([trackId]) => !removed.has(trackId)),
+      );
+      const previewTrackId =
+        state.previewTrackId && !removed.has(state.previewTrackId) ? state.previewTrackId : (tracks[0]?.id ?? null);
+      return {
+        tracks,
+        archivedTracks,
+        selectedTrackIds: state.selectedTrackIds.filter((id) => !removed.has(id)),
+        selectionAnchorId:
+          state.selectionAnchorId && !removed.has(state.selectionAnchorId) ? state.selectionAnchorId : null,
+        previewTrackId,
+        selectedInput: keep(state.selectedInput),
+        selectedInputs: state.selectedInputs.filter((input) => !removed.has(input.trackId)),
+        inputEditPreview: null,
+        selectedCursorRange: keep(state.selectedCursorRange),
+        selectedCursorFrameMs: previewTrackId === state.previewTrackId ? state.selectedCursorFrameMs : null,
+        selectedCursorFrameTimes: previewTrackId === state.previewTrackId ? state.selectedCursorFrameTimes : [],
+        simulationByTrack,
+        // Undo snapshots hold whole track lists and would resurrect the removed replays.
+        undoStack: [],
+        redoStack: [],
+        lastEditMessage: message,
+      };
     }),
   archiveActiveMap: (mapInfo) =>
     set((state) => {
@@ -1045,7 +1159,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   setCursorTrailMs: (duration) => {
     if (!Number.isFinite(duration)) return;
-    const cursorTrailMs = Math.max(0, Math.min(5000, Math.round(duration / 10) * 10));
+    const cursorTrailMs = Math.max(0, Math.min(5000, Math.round(duration)));
     try {
       localStorage.setItem(trailStorageKey, String(cursorTrailMs));
     } catch {
@@ -1162,6 +1276,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })),
   setTool: (tool) => set({ tool }),
   setBrushRadiusPx: (radius) => set({ brushRadiusPx: Math.max(4, Math.min(200, radius)) }),
+  setBrushStrength: (strength) =>
+    set({ brushStrength: Number.isFinite(strength) ? Math.max(0.05, Math.min(1, strength)) : 0.35 }),
+  setMagneticMove: (magneticMove) => set({ magneticMove }),
   setSnap: (snap) => set({ snap }),
   selectInput: (input, additive = false) =>
     set((state) => {
@@ -1512,6 +1629,31 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         playing: false,
       };
     }),
+  dragCursorNodes: (trackId, originFrames, nodeTimes, deltaX, deltaY, magnetic) =>
+    set((state) => {
+      const track = state.tracks.find((item) => item.id === trackId);
+      if (!track || track.locked || !nodeTimes.length || originFrames.length !== track.replay.frames.length) return {};
+      const dragged = new Set(nodeTimes.map(Math.round));
+      const draggedIndices = originFrames.flatMap((frame, index) => (dragged.has(frame.timeMs) ? [index] : []));
+      const weights = magnetic
+        ? magneticDragWeights(originFrames, draggedIndices, Math.hypot(deltaX, deltaY))
+        : originFrames.map((frame) => (dragged.has(frame.timeMs) ? 1 : 0));
+      let changed = false;
+      const frames = track.replay.frames.map((frame, index) => {
+        const origin = originFrames[index];
+        const weight = weights[index];
+        const nextX = Math.round(Math.max(0, Math.min(512, origin.x + deltaX * weight)) * 10) / 10;
+        const nextY = Math.round(Math.max(0, Math.min(384, origin.y + deltaY * weight)) * 10) / 10;
+        if (nextX === frame.x && nextY === frame.y) return frame;
+        changed = true;
+        return { ...frame, x: nextX, y: nextY };
+      });
+      if (!changed) return {};
+      const tracks = state.tracks.map((item) =>
+        item.id === trackId ? { ...item, edited: true, replay: { ...item.replay, frames } } : item,
+      );
+      return { tracks, simulationByTrack: {}, playing: false };
+    }),
   applyBrushDab: (trackId, centerX, centerY, radiusPx, deltaX, deltaY, minMs, maxMs, selectedFrameTimes) =>
     set((state) => {
       const track = state.tracks.find((item) => item.id === trackId);
@@ -1523,7 +1665,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         const distance = Math.hypot(frame.x - centerX, frame.y - centerY);
         if (distance >= radiusPx) return frame;
         const weight = 1 - distance / radiusPx;
-        const eased = weight * weight * (3 - 2 * weight) * 0.35;
+        const eased = weight * weight * (3 - 2 * weight) * state.brushStrength;
         const nextX = Math.max(0, Math.min(512, frame.x + deltaX * eased));
         const nextY = Math.max(0, Math.min(384, frame.y + deltaY * eased));
         return { ...frame, x: Math.round(nextX * 10) / 10, y: Math.round(nextY * 10) / 10 };

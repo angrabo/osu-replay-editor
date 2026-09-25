@@ -55,6 +55,11 @@ export function useKeyboardShortcuts({
       ) {
         event.preventDefault();
         useEditorStore.getState().setTool('hand');
+      } else if (!event.altKey && event.key.toLowerCase() === 't') {
+        event.preventDefault();
+        const state = useEditorStore.getState();
+        state.setEditorSurface('gameplay');
+        state.setTool('curve');
       } else if (event.key === 'Escape') {
         const state = useEditorStore.getState();
         state.selectInput(null);
@@ -79,10 +84,11 @@ export function useKeyboardShortcuts({
         }
       } else if (event.key === 'Delete') {
         const state = useEditorStore.getState();
-        if (state.tool === 'curve' && state.previewTrackId && state.selectedCursorFrameTimes.length) {
+        const nodeTool = state.tool === 'curve' || state.tool === 'select';
+        if (nodeTool && state.previewTrackId && state.selectedCursorFrameTimes.length) {
           event.preventDefault();
           state.deleteSelectedCursorFrames(state.previewTrackId);
-        } else if (state.tool === 'curve' && state.previewTrackId && state.selectedCursorFrameMs !== null) {
+        } else if (nodeTool && state.previewTrackId && state.selectedCursorFrameMs !== null) {
           event.preventDefault();
           state.deleteCursorFrame(state.previewTrackId, state.selectedCursorFrameMs);
         } else if (state.selectedInputs.length) {

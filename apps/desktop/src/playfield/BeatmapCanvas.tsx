@@ -6,6 +6,7 @@ import {
   replayPointAt,
   type BeatmapViewerAdapter,
   type ParsedBeatmap,
+  type PlayfieldTransform,
 } from '@ore/beatmap-viewer';
 import { Minus, Plus, RotateCcw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -14,10 +15,12 @@ import { sidecarBlobRequest } from '../sidecar';
 import {
   adjacentReplayFrameTime,
   editReplayInputs,
-  nearestReplayFrameTime,
   useEditorStore,
   type CursorStrokePoint,
+  type ReplayFrame,
 } from '../stores/editor';
+import { SnapWidget } from '../hooks/useSnapDrag';
+import { StepNumberInput } from '../components/common/StepNumberInput';
 
 const DEV_FIXTURE = `osu file format v14
 [General]
@@ -69,9 +72,15 @@ export function BeatmapCanvas({
   const viewerRef = useRef<BeatmapViewerAdapter | null>(null);
   const panRef = useRef({ x: 0, y: 0 });
   const panDragRef = useRef<{ pointerId: number; x: number; y: number; startX: number; startY: number } | null>(null);
-  const cursorDragRef = useRef<{ pointerId: number; trackId: string; timeMs: number; x: number; y: number } | null>(
-    null,
-  );
+  const nodeDragRef = useRef<{
+    pointerId: number;
+    trackId: string;
+    times: number[];
+    originFrames: readonly ReplayFrame[];
+    moved: boolean;
+    x: number;
+    y: number;
+  } | null>(null);
   const strokeRef = useRef<{
     pointerId: number;
     trackId: string;
@@ -81,8 +90,9 @@ export function BeatmapCanvas({
   } | null>(null);
   const brushDragRef = useRef<{ pointerId: number; trackId: string; x: number; y: number } | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [hostSize, setHostSize] = useState({ width: 0, height: 0 });
+  const [viewTransform, setViewTransform] = useState<PlayfieldTransform | null>(null);
   const [brushHover, setBrushHover] = useState<{ x: number; y: number } | null>(null);
-  const [cursorDraft, setCursorDraft] = useState<{ x: number; y: number } | null>(null);
   const [strokeDraft, setStrokeDraft] = useState<CursorStrokePoint[]>([]);
   const [nodeMenu, setNodeMenu] = useState<{ x: number; y: number; timeMs: number } | null>(null);
   const [ready, setReady] = useState(false);
@@ -100,7 +110,13 @@ export function BeatmapCanvas({
   const fadeAfterClick = useEditorStore((state) => state.fadeAfterClick);
   const showHitJudgements = useEditorStore((state) => state.showHitJudgements);
   const showHiddenFade = useEditorStore((state) => state.showHiddenFade);
-  const playfieldZoom = useEditorStore((state) => state.playfieldZoom);
+  // Zoom is per-pane (local state), not the shared store value — otherwise the two split-view
+  // panes would fight over one zoom level. Seeded once from the saved preference at mount.
+  const [playfieldZoom, setPlayfieldZoomRaw] = useState(() => useEditorStore.getState().playfieldZoom);
+  const setPlayfieldZoom = (zoom: number) => {
+    if (!Number.isFinite(zoom)) return;
+    setPlayfieldZoomRaw(Math.max(0.5, Math.min(2.5, Math.round(zoom * 10) / 10)));
+  };
   const cursorTrailMs = useEditorStore((state) => state.cursorTrailMs);
   const showCursorPast = useEditorStore((state) => state.showCursorPast);
   const showCursorFuture = useEditorStore((state) => state.showCursorFuture);
@@ -112,7 +128,6 @@ export function BeatmapCanvas({
   const setPlayhead = useEditorStore((state) => state.setPlayhead);
   const requestTimelineFocus = useEditorStore((state) => state.requestTimelineFocus);
   const setPlaying = useEditorStore((state) => state.setPlaying);
-  const setPlayfieldZoom = useEditorStore((state) => state.setPlayfieldZoom);
   const setCursorTrailMs = useEditorStore((state) => state.setCursorTrailMs);
   const previewTrackId = useEditorStore((state) => state.previewTrackId);
   const previewTrack = useEditorStore((state) =>
@@ -145,6 +160,8 @@ export function BeatmapCanvas({
   const deleteCursorFrame = useEditorStore((state) => state.deleteCursorFrame);
   const drawCursorPath = useEditorStore((state) => state.drawCursorPath);
   const brushRadiusPx = useEditorStore((state) => state.brushRadiusPx);
+  const magneticMove = useEditorStore((state) => state.magneticMove);
+  const dragCursorNodes = useEditorStore((state) => state.dragCursorNodes);
   const beginBrushStroke = useEditorStore((state) => state.beginBrushStroke);
   const applyBrushDab = useEditorStore((state) => state.applyBrushDab);
 
@@ -214,6 +231,15 @@ export function BeatmapCanvas({
         onEnded: () => {
           if (clock) useEditorStore.getState().setPlaying(false);
         },
+        onTransformChange: (next) =>
+          setViewTransform((previous) =>
+            previous &&
+            Math.abs(previous.scale - next.scale) < 1e-6 &&
+            Math.abs(previous.x - next.x) < 0.01 &&
+            Math.abs(previous.y - next.y) < 0.01
+              ? previous
+              : next,
+          ),
       });
       if (cancelled) {
         viewer.destroy();
@@ -244,7 +270,7 @@ export function BeatmapCanvas({
         fadeAfterClick: settings.fadeAfterClick,
         showHitJudgements: settings.showHitJudgements,
         showHiddenFade: settings.showHiddenFade,
-        zoom: settings.playfieldZoom,
+        zoom: playfieldZoom,
         cursorTrailMs: settings.cursorTrailMs,
       });
       viewer.seek(0);
@@ -262,6 +288,30 @@ export function BeatmapCanvas({
     };
   }, [resolution, clock]);
 
+  // React's wheel listener is passive; block the page scroll/zoom (Ctrl+wheel) natively instead.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const block = (event: WheelEvent) => event.preventDefault();
+    host.addEventListener('wheel', block, { passive: false });
+    return () => host.removeEventListener('wheel', block);
+  }, []);
+  // The viewer resizes itself (and re-clamps its pan) on its own ResizeObserver; mirror both here
+  // so the DOM node overlay keeps the viewer's exact transform when a panel shows/hides.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const observer = new ResizeObserver(() => {
+      setHostSize({ width: host.clientWidth, height: host.clientHeight });
+      const synced = viewerRef.current?.setPan(panRef.current.x, panRef.current.y);
+      if (synced && (synced.x !== panRef.current.x || synced.y !== panRef.current.y)) {
+        panRef.current = synced;
+        setPan({ ...synced });
+      }
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
   useEffect(() => {
     if (ready) {
       if (playing && clock) viewerRef.current?.play();
@@ -315,6 +365,14 @@ export function BeatmapCanvas({
   ]);
   useEffect(() => {
     if (!ready) return;
+    const synced = viewerRef.current?.setPan(panRef.current.x, panRef.current.y);
+    if (synced && (synced.x !== panRef.current.x || synced.y !== panRef.current.y)) {
+      panRef.current = synced;
+      setPan({ ...synced });
+    }
+  }, [playfieldZoom, ready]);
+  useEffect(() => {
+    if (!ready) return;
     const matchesPreview = !original || !previewTrack?.edited;
     viewerRef.current?.setJudgements(
       matchesPreview && simulation?.scope === 'whole-replay' && simulation.status !== 'unsupported'
@@ -327,11 +385,10 @@ export function BeatmapCanvas({
   }, [playhead, ready]);
   useEffect(() => {
     const host = hostRef.current;
-    const cursorPointer = cursorDragRef.current?.pointerId;
+    const cursorPointer = nodeDragRef.current?.pointerId;
     const strokePointer = strokeRef.current?.pointerId;
-    cursorDragRef.current = null;
+    nodeDragRef.current = null;
     strokeRef.current = null;
-    setCursorDraft(null);
     setStrokeDraft([]);
     setNodeMenu(null);
     if (cursorPointer !== undefined && host?.hasPointerCapture(cursorPointer))
@@ -354,12 +411,6 @@ export function BeatmapCanvas({
       : edits.length
         ? editReplayInputs(previewTrack.replay, edits)
         : previewTrack.replay;
-    const draftTime = cursorDragRef.current?.timeMs ?? selectedCursorFrameMs;
-    if (cursorDraft && draftTime !== null)
-      replay = {
-        ...replay,
-        frames: replay.frames.map((frame) => (frame.timeMs === draftTime ? { ...frame, ...cursorDraft } : frame)),
-      };
     const liveSelection =
       edits.find(
         (edit) =>
@@ -389,18 +440,7 @@ export function BeatmapCanvas({
         return range ? { startTime: range.startMs, endTime: range.endMs } : null;
       })(),
     });
-  }, [
-    ready,
-    previewTrack,
-    original,
-    selectedInput,
-    inputEditPreview,
-    cursorDraft,
-    selectedCursorFrameMs,
-    selectedCursorRange,
-    tool,
-    selectedTimeRange,
-  ]);
+  }, [ready, previewTrack, original, selectedInput, inputEditPreview, selectedCursorRange, tool, selectedTimeRange]);
 
   const finishPan = (target?: HTMLDivElement) => {
     const drag = panDragRef.current;
@@ -409,23 +449,22 @@ export function BeatmapCanvas({
     if (drag && target?.hasPointerCapture(drag.pointerId)) target.releasePointerCapture(drag.pointerId);
   };
 
-  const scale = hostRef.current
-    ? Math.min(hostRef.current.clientWidth / 512, hostRef.current.clientHeight / 384) * playfieldZoom
+  // The DOM overlay (cursor nodes, brush, draw preview) follows the viewer's own transform so it can
+  // never drift from what Pixi draws; the computed fallback only covers the moment before load.
+  const computedScale = hostSize.width
+    ? Math.min(hostSize.width / 512, hostSize.height / 384) * Math.max(0.5, Math.min(2.5, playfieldZoom))
     : 1;
-  const originX = hostRef.current ? (hostRef.current.clientWidth - 512 * scale) / 2 + pan.x : 0;
-  const originY = hostRef.current ? (hostRef.current.clientHeight - 384 * scale) / 2 + pan.y : 0;
+  const scale = ready && viewTransform ? viewTransform.scale : computedScale;
+  const originX = ready && viewTransform ? viewTransform.x : (hostSize.width - 512 * scale) / 2 + pan.x;
+  const originY = ready && viewTransform ? viewTransform.y : (hostSize.height - 384 * scale) / 2 + pan.y;
   const cursorEditColor = `#${inputVariantColor(
     Number.parseInt(previewTrack?.color.replace('#', '') ?? '', 16) || 0xffffff,
     2,
   )
     .toString(16)
     .padStart(6, '0')}`;
-  const cursorFrameTime = displayedReplay
-    ? nearestReplayFrameTime(displayedReplay.frames, selectedCursorFrameMs ?? playhead)
-    : 0;
-  const cursorPoint = displayedReplay ? replayPointAt(displayedReplay.frames, cursorFrameTime) : null;
   const curveFrames =
-    interactive && tool === 'curve' && displayedReplay
+    interactive && (tool === 'curve' || tool === 'select') && displayedReplay
       ? displayedReplay.frames.filter(
           (frame) =>
             frame.timeMs >= playhead - cursorTrailMs &&
@@ -439,11 +478,8 @@ export function BeatmapCanvas({
     return { x: (clientX - box.left - originX) / scale, y: (clientY - box.top - originY) / scale };
   };
 
-  const finishCursorDrag = (target: HTMLDivElement, pointerId: number) => {
-    const drag = cursorDragRef.current;
-    cursorDragRef.current = null;
-    setCursorDraft(null);
-    if (drag?.pointerId === pointerId) setCursorFramePosition(drag.trackId, drag.timeMs, drag.x, drag.y);
+  const finishNodeDrag = (target: HTMLDivElement, pointerId: number) => {
+    nodeDragRef.current = null;
     if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
   };
 
@@ -517,26 +553,9 @@ export function BeatmapCanvas({
           brushDragRef.current = { pointerId: event.pointerId, trackId: previewTrack.id, ...point };
           return;
         }
-        if (tool === 'select') {
-          if (!previewTrack || previewTrack.locked) {
-            selectBeatmapObject(null);
-            return;
-          }
-          const point = pointerPoint(event.clientX, event.clientY);
-          if (!point) {
-            selectBeatmapObject(null);
-            return;
-          }
-          const timeMs = cursorFrameTime;
-          if (!cursorPoint || Math.hypot(point.x - cursorPoint.x, point.y - cursorPoint.y) * scale > 24) {
-            selectBeatmapObject(null);
-            return;
-          }
-          event.preventDefault();
-          event.currentTarget.setPointerCapture(event.pointerId);
-          selectCursorFrame(timeMs);
-          cursorDragRef.current = { pointerId: event.pointerId, trackId: previewTrack.id, timeMs, ...point };
-          setCursorDraft(point);
+        if (tool === 'select' || tool === 'curve') {
+          selectBeatmapObject(null);
+          if (!(event.ctrlKey || event.metaKey || event.shiftKey)) selectCursorFrame(null);
           return;
         }
         if (tool === 'split') {
@@ -612,7 +631,7 @@ export function BeatmapCanvas({
           }
         }
         const drag = panDragRef.current;
-        const cursorDrag = cursorDragRef.current;
+        const nodeDrag = nodeDragRef.current;
         const stroke = strokeRef.current;
         if (stroke?.pointerId === event.pointerId) {
           let point = pointerPoint(event.clientX, event.clientY);
@@ -632,12 +651,22 @@ export function BeatmapCanvas({
           }
           return;
         }
-        if (cursorDrag?.pointerId === event.pointerId) {
+        if (nodeDrag?.pointerId === event.pointerId) {
           const point = pointerPoint(event.clientX, event.clientY);
           if (point) {
-            cursorDrag.x = point.x;
-            cursorDrag.y = point.y;
-            setCursorDraft(point);
+            if (!nodeDrag.moved) {
+              // One undo step per drag, taken only once the node actually moves.
+              beginBrushStroke(nodeDrag.trackId);
+              nodeDrag.moved = true;
+            }
+            dragCursorNodes(
+              nodeDrag.trackId,
+              nodeDrag.originFrames,
+              nodeDrag.times,
+              point.x - nodeDrag.x,
+              point.y - nodeDrag.y,
+              magneticMove,
+            );
           }
           return;
         }
@@ -648,7 +677,7 @@ export function BeatmapCanvas({
       }}
       onPointerUp={(event) => {
         if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, true, event.clientX, event.clientY);
-        else if (cursorDragRef.current) finishCursorDrag(event.currentTarget, event.pointerId);
+        else if (nodeDragRef.current) finishNodeDrag(event.currentTarget, event.pointerId);
         else if (brushDragRef.current?.pointerId === event.pointerId) {
           brushDragRef.current = null;
           if (event.currentTarget.hasPointerCapture(event.pointerId))
@@ -657,19 +686,18 @@ export function BeatmapCanvas({
       }}
       onPointerCancel={(event) => {
         if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, false);
-        else if (cursorDragRef.current) finishCursorDrag(event.currentTarget, event.pointerId);
+        else if (nodeDragRef.current) finishNodeDrag(event.currentTarget, event.pointerId);
         else if (brushDragRef.current?.pointerId === event.pointerId) brushDragRef.current = null;
         else finishPan(event.currentTarget);
       }}
       onLostPointerCapture={(event) => {
         if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, false);
-        else if (cursorDragRef.current) finishCursorDrag(event.currentTarget, event.pointerId);
+        else if (nodeDragRef.current) finishNodeDrag(event.currentTarget, event.pointerId);
         else if (brushDragRef.current?.pointerId === event.pointerId) brushDragRef.current = null;
         else finishPan(event.currentTarget);
       }}
       onPointerLeave={() => setBrushHover(null)}
       onWheel={(event) => {
-        event.preventDefault();
         const direction: -1 | 1 = event.deltaY > 0 ? 1 : -1;
         if (event.ctrlKey) {
           setPlayfieldZoom(playfieldZoom + (direction < 0 ? 0.1 : -0.1));
@@ -698,56 +726,62 @@ export function BeatmapCanvas({
         </div>
       )}
       {resolution && ready && previewBeatmap && (
-        <div className="playfield-difficulty" aria-label="Effective beatmap difficulty">
+        <SnapWidget
+          id="stats"
+          panel="stats"
+          fallback="top-left"
+          order={2}
+          className="playfield-difficulty"
+          ariaLabel="Effective beatmap difficulty"
+        >
           {(previewMods & 16) !== 0 && <strong>HR</strong>}
           {(previewMods & 2) !== 0 && <strong>EZ</strong>}
           <span>CS {previewBeatmap.circleSize.toFixed(1)}</span>
           <span>AR {previewBeatmap.approachRate.toFixed(1)}</span>
           <span>OD {previewBeatmap.overallDifficulty.toFixed(1)}</span>
-        </div>
-      )}
-      {interactive && resolution && previewTrack && cursorPoint && tool === 'select' && (
-        <div
-          className="cursor-edit-node"
-          title={`Cursor frame ${cursorFrameTime} ms · X ${Math.round((cursorDraft ?? cursorPoint).x)} · Y ${Math.round((cursorDraft ?? cursorPoint).y)}`}
-          style={{
-            left: originX + (cursorDraft ?? cursorPoint).x * scale,
-            top: originY + (cursorDraft ?? cursorPoint).y * scale,
-          }}
-        />
+        </SnapWidget>
       )}
       {interactive &&
         resolution &&
         previewTrack &&
-        tool === 'curve' &&
         curveFrames.map((frame) => {
           const selected = frame.timeMs === selectedCursorFrameMs || selectedCursorFrameTimes.includes(frame.timeMs);
-          const point = selected && cursorDraft && frame.timeMs === selectedCursorFrameMs ? cursorDraft : frame;
           return (
             <button
               type="button"
               key={frame.timeMs}
-              className={`cursor-curve-node ${frame.timeMs <= playhead ? 'past' : 'future'}${selected ? ' selected' : ''}`}
+              className={`cursor-curve-node ${frame.timeMs <= playhead ? 'past' : 'future'}${selected ? ' selected' : ''}${tool === 'select' ? ' select-only' : ''}`}
               aria-label={`Cursor line node at ${frame.timeMs} milliseconds`}
-              title={`${frame.timeMs} ms · X ${Math.round(point.x)} · Y ${Math.round(point.y)}`}
-              style={{ left: originX + point.x * scale, top: originY + point.y * scale }}
+              title={`${frame.timeMs} ms · X ${Math.round(frame.x)} · Y ${Math.round(frame.y)}`}
+              style={{ left: originX + frame.x * scale, top: originY + frame.y * scale }}
               onPointerDown={(event) => {
                 if (event.button !== 0 || previewTrack.locked) return;
                 event.preventDefault();
                 event.stopPropagation();
                 setPlaying(false);
                 const additive = event.ctrlKey || event.metaKey || event.shiftKey;
-                selectCursorFrame(frame.timeMs, additive);
-                if (additive) return;
+                if (additive || tool === 'select' || !selected) selectCursorFrame(frame.timeMs, additive);
+                if (additive || tool === 'select') return;
+                const point = pointerPoint(event.clientX, event.clientY);
+                if (!point) return;
+                const times = selected
+                  ? [
+                      ...new Set(
+                        [...selectedCursorFrameTimes, selectedCursorFrameMs].filter(
+                          (time): time is number => time !== null,
+                        ),
+                      ),
+                    ]
+                  : [frame.timeMs];
                 hostRef.current?.setPointerCapture(event.pointerId);
-                cursorDragRef.current = {
+                nodeDragRef.current = {
                   pointerId: event.pointerId,
                   trackId: previewTrack.id,
-                  timeMs: frame.timeMs,
-                  x: frame.x,
-                  y: frame.y,
+                  times,
+                  originFrames: previewTrack.replay.frames,
+                  moved: false,
+                  ...point,
                 };
-                setCursorDraft({ x: frame.x, y: frame.y });
               }}
               onDoubleClick={(event) => event.stopPropagation()}
               onContextMenu={(event) => {
@@ -826,7 +860,7 @@ export function BeatmapCanvas({
         </svg>
       )}
       {resolution && (
-        <div className="playfield-zoom">
+        <SnapWidget id="viewControls" panel="viewControls" fallback="bottom-left" grip className="playfield-zoom">
           <button type="button" title="Zoom out" onClick={() => setPlayfieldZoom(playfieldZoom - 0.1)}>
             <Minus size={14} />
           </button>
@@ -849,19 +883,16 @@ export function BeatmapCanvas({
           </button>
           <label className="trail-duration" title="How long cursor movement and click history remains visible">
             <span>Trail</span>
-            <input
-              aria-label="Cursor history duration"
-              type="number"
-              min="0"
-              max="5000"
-              step="10"
+            <StepNumberInput
+              ariaLabel="Cursor history duration"
+              min={0}
+              max={5000}
               value={cursorTrailMs}
-              onWheel={(event) => event.stopPropagation()}
-              onChange={(event) => setCursorTrailMs(Number(event.target.value))}
+              onChange={setCursorTrailMs}
             />
             <small>ms</small>
           </label>
-        </div>
+        </SnapWidget>
       )}
     </div>
   );

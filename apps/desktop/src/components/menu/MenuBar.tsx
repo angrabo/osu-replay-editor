@@ -6,8 +6,9 @@ import { EditMenu } from './EditMenu';
 import { ViewMenu } from './ViewMenu';
 import { PlaybackMenu } from './PlaybackMenu';
 import { TimelineMenu } from './TimelineMenu';
+import { WindowMenu } from './WindowMenu';
 
-type MenuName = 'file' | 'edit' | 'view' | 'playback' | 'timeline';
+type MenuName = 'file' | 'edit' | 'view' | 'playback' | 'timeline' | 'window';
 
 export function MenuBar({
   openAcquisition,
@@ -193,6 +194,12 @@ export function MenuBar({
             defaultLaneHeight={timelineDefaultLaneHeight}
           />
         )}
+      </div>
+      <div className="menu-item" onPointerEnter={() => setMenuOpen('window')}>
+        <button aria-haspopup="menu" aria-expanded={menuOpen === 'window'} onFocus={() => setMenuOpen('window')}>
+          Window
+        </button>
+        {menuOpen === 'window' && <WindowMenu />}
       </div>
     </nav>
   );

@@ -59,7 +59,11 @@ export type ViewerCallbacks = {
   onLoaded?: (beatmap: ParsedBeatmap) => void;
   onTimeChange?: (timeMs: number) => void;
   onEnded?: () => void;
+  // Screen-space placement of the 512×384 playfield inside the host (after zoom, pan and resize).
+  onTransformChange?: (transform: PlayfieldTransform) => void;
 };
+
+export type PlayfieldTransform = { scale: number; x: number; y: number };
 
 export interface BeatmapViewerAdapter {
   loadBeatmap(source: BeatmapSource): Promise<void>;

@@ -179,6 +179,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
         this.background = null;
       }
     }
+    if (this.destroyed) return;
     this.resize();
     this.draw();
     this.callbacks.onLoaded?.(this.beatmap);
@@ -250,7 +251,11 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     this.observer?.disconnect();
     this.observer = null;
     this.releaseMedia();
-    this.app.destroy(true, { children: true, texture: true });
+    // `app.destroy(true, ...)` treats the boolean shorthand as `releaseGlobalResources: true`,
+    // which wipes Pixi's process-wide TexturePool/TextureCache shared by every viewer instance
+    // (e.g. the other split-view pane) — crashing it later with "Cannot read properties of
+    // undefined (reading 'push')" inside TexturePool.returnTexture. Only remove this view's canvas.
+    this.app.destroy({ removeView: true }, { children: true, texture: true });
   }
 
   private readonly handleEnded = () => {
@@ -309,6 +314,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     this.panY = clamp(this.panY, margin - baseY - 384 * scale, height - margin - baseY);
     this.playfield.scale.set(scale);
     this.playfield.position.set(baseX + this.panX, baseY + this.panY);
+    this.callbacks.onTransformChange?.({ scale, x: baseX + this.panX, y: baseY + this.panY });
   }
 
   private updateDim() {
@@ -468,6 +474,9 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
   }
 
   private draw() {
+    // loadBeatmap()'s awaits can resolve after the component unmounted this viewer (e.g.
+    // toggling split view remounts BeatmapCanvas) — don't touch already-destroyed Pixi objects.
+    if (this.destroyed) return;
     this.objectLayerPool.forEach((layer) => {
       layer.container.visible = false;
     });

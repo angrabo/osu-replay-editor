@@ -236,7 +236,9 @@ export function useTimelineCanvas(params: {
         autoDensity: true,
       });
       if (cancelled) {
-        next.destroy(true);
+        // Object form on purpose: destroy(true) also releases Pixi's process-wide texture pools,
+        // breaking the playfield viewers that share them.
+        next.destroy({ removeView: true });
         return;
       }
       app = next;
@@ -257,7 +259,7 @@ export function useTimelineCanvas(params: {
       cancelled = true;
       observer?.disconnect();
       graphicsRef.current = null;
-      app?.destroy(true, { children: true });
+      app?.destroy({ removeView: true }, { children: true });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

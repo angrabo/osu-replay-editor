@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { InfoTip } from '../InfoTip';
 import { logicalKeys, type ReplayFrame } from '../../stores/editor';
 
 export function CursorTimingControl({
@@ -37,7 +38,10 @@ export function CursorTimingControl({
   return (
     <div className="cursor-timing-control">
       <div className="field-row">
-        <span>Frame time</span>
+        <span>
+          Frame time
+          <InfoTip text="Retime an interior cursor frame. Input transition times stay on the input timeline." />
+        </span>
         <input
           className="field-value cursor-coordinate"
           aria-label="Cursor frame time in milliseconds"
@@ -81,9 +85,6 @@ export function CursorTimingControl({
         <span>Before {speed(before, frame, before?.timeMs ?? 0, draft)}</span>
         <span>After {speed(frame, after, draft, after?.timeMs ?? 0)}</span>
       </div>
-      {!editable && !locked && (
-        <small>Move an interior cursor frame; input transition times stay on the input timeline.</small>
-      )}
     </div>
   );
 }

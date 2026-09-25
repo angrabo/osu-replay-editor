@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ZoomIn } from 'lucide-react';
+import { InfoTip } from '../components/InfoTip';
 
 const basePixelsPerSecond = 138;
 
@@ -24,8 +25,10 @@ export function TimelineZoomControl({
         {zoomPercent}%
       </button>
       <div className="premiere-popover timeline-zoom-popover">
-        <strong>Timeline zoom</strong>
-        <small>Drag the slider or enter an exact percentage.</small>
+        <strong className="popover-title">
+          Timeline zoom
+          <InfoTip text="Drag the slider or enter an exact percentage." />
+        </strong>
         <input
           className="timeline-zoom-slider"
           aria-label="Timeline zoom percentage"

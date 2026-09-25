@@ -2,6 +2,8 @@ import { Copy, Plus, Scissors, Sparkles, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { formatTime, type InputKey, useEditorStore } from '../../stores/editor';
 import { Field } from '../common/Field';
+import { InfoTip } from '../InfoTip';
+import { PanelCloseButton } from '../common/PanelCloseButton';
 
 const inputKeys: InputKey[] = ['M1', 'M2', 'K1', 'K2'];
 const shiftSteps = [-10, -5, -1, 1, 5, 10];
@@ -61,8 +63,11 @@ export function SelectionPanel() {
   return (
     <section className="panel selection-panel">
       <div className="panel-title">
-        <span>Selection</span>
-        <kbd>Alt drag</kbd>
+        <span>
+          Selection
+          <InfoTip text="Select input events, Alt+drag across Cursor X/Y for a time range, or pick a hit object. Cursor coordinates are read only here — edit nodes on the playfield." />
+        </span>
+        <PanelCloseButton panel="selection" />
       </div>
       <div className="selection-body">
         {selectedInputs.length > 0 && (
@@ -224,9 +229,6 @@ export function SelectionPanel() {
                 <Copy size={13} /> Copy
               </button>
             </div>
-            <p className="sample-note">
-              Cursor coordinates stay read only on the timeline. Edit individual nodes on the playfield.
-            </p>
           </>
         )}
 
@@ -250,7 +252,6 @@ export function SelectionPanel() {
         {!selectedInputs.length && !selectedCursorRange && !selectedObject && (
           <div className="selection-empty">
             <strong>Nothing selected</strong>
-            <span>Select input events, drag across Cursor X/Y, or select a hit object.</span>
             <div className="selection-group-title">Quick actions</div>
             <div className="selection-actions">
               <button onClick={addInputAtPlayhead}>

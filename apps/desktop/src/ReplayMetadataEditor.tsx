@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { AlertTriangle, Download, RefreshCw } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { AlertTriangle, ChevronDown, ChevronRight, Download, RefreshCw } from 'lucide-react';
+import { InfoTip } from './components/InfoTip';
 import { sidecarRequest } from './sidecar';
 import {
   simulationMetadataPatch,
@@ -9,34 +10,78 @@ import {
   type Track,
 } from './stores/editor';
 
-const modOptions = [
-  ['NF', 1],
-  ['EZ', 2],
-  ['TD', 4],
-  ['HD', 8],
-  ['HR', 16],
-  ['SD', 32],
-  ['DT', 64],
-  ['RX', 128],
-  ['HT', 256],
-  ['NC', 512],
-  ['FL', 1024],
-  ['AT', 2048],
-  ['SO', 4096],
-  ['AP', 8192],
-  ['PF', 16384],
-  ['4K', 32768],
-  ['5K', 65536],
-  ['6K', 131072],
-  ['7K', 262144],
-  ['8K', 524288],
-  ['FI', 1048576],
-  ['RD', 2097152],
-  ['CN', 4194304],
-  ['TP', 8388608],
-  ['9K', 16777216],
-  ['SV2', 536870912],
-] as const;
+type ModGroup = 'reduction' | 'increase' | 'automation' | 'other';
+
+const modOptions: readonly (readonly [string, number, string, ModGroup])[] = [
+  ['EZ', 2, 'Easy', 'reduction'],
+  ['NF', 1, 'No Fail', 'reduction'],
+  ['HT', 256, 'Half Time', 'reduction'],
+  ['HR', 16, 'Hard Rock', 'increase'],
+  ['SD', 32, 'Sudden Death', 'increase'],
+  ['PF', 16384, 'Perfect', 'increase'],
+  ['DT', 64, 'Double Time', 'increase'],
+  ['NC', 512, 'Nightcore', 'increase'],
+  ['HD', 8, 'Hidden', 'increase'],
+  ['FL', 1024, 'Flashlight', 'increase'],
+  ['FI', 1048576, 'Fade In', 'increase'],
+  ['RX', 128, 'Relax', 'automation'],
+  ['AP', 8192, 'Autopilot', 'automation'],
+  ['SO', 4096, 'Spun Out', 'automation'],
+  ['AT', 2048, 'Autoplay', 'automation'],
+  ['CN', 4194304, 'Cinema', 'automation'],
+  ['TP', 8388608, 'Target Practice', 'automation'],
+  ['TD', 4, 'Touch Device', 'other'],
+  ['SV2', 536870912, 'Score V2', 'other'],
+  ['RD', 2097152, 'Random', 'other'],
+  ['4K', 32768, '4 Keys', 'other'],
+  ['5K', 65536, '5 Keys', 'other'],
+  ['6K', 131072, '6 Keys', 'other'],
+  ['7K', 262144, '7 Keys', 'other'],
+  ['8K', 524288, '8 Keys', 'other'],
+  ['9K', 16777216, '9 Keys', 'other'],
+];
+
+const modGroups: readonly (readonly [ModGroup, string])[] = [
+  ['reduction', 'Difficulty reduction'],
+  ['increase', 'Difficulty increase'],
+  ['automation', 'Automation'],
+  ['other', 'Other'],
+];
+
+const simulatedMods = [1, 2, 8, 16, 64, 256, 512, 1024, 4096];
+
+function MetaCard({
+  title,
+  info,
+  aside,
+  collapsible = false,
+  children,
+}: {
+  title: string;
+  info?: string;
+  aside?: ReactNode;
+  collapsible?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(!collapsible);
+  return (
+    <section className={`meta-card${open ? '' : ' collapsed'}`}>
+      <header className="meta-card-head">
+        {collapsible ? (
+          <button type="button" className="meta-card-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            {title}
+          </button>
+        ) : (
+          <strong>{title}</strong>
+        )}
+        {info && <InfoTip text={info} />}
+        {aside && <span className="meta-card-aside">{aside}</span>}
+      </header>
+      {open && <div className="meta-card-body">{children}</div>}
+    </section>
+  );
+}
 
 function TextEdit({
   label,
@@ -53,7 +98,7 @@ function TextEdit({
     if (input.value !== value) onCommit(input.value);
   };
   return (
-    <label className="field-row metadata-field">
+    <label className="meta-field">
       <span>{label}</span>
       {multiline ? (
         <textarea key={`${label}-${value}`} defaultValue={value} onBlur={(event) => commit(event.currentTarget)} />
@@ -62,6 +107,7 @@ function TextEdit({
           key={`${label}-${value}`}
           type="text"
           defaultValue={value}
+          title={value}
           onBlur={(event) => commit(event.currentTarget)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') event.currentTarget.blur();
@@ -89,7 +135,7 @@ function WarningMark({
       aria-label={`${label} differs from simulation`}
       title={`${label}: replay metadata ${String(actual)}, simulation ${String(suggested)}. Simulation is an estimate.`}
     >
-      <AlertTriangle size={15} />
+      <AlertTriangle size={13} />
     </span>
   );
 }
@@ -101,6 +147,7 @@ function NumberEdit({
   max = 2147483647,
   suggested,
   onCommit,
+  className = '',
 }: {
   label: string;
   value: number;
@@ -108,9 +155,10 @@ function NumberEdit({
   max?: number;
   suggested?: number | null;
   onCommit: (value: number) => void;
+  className?: string;
 }) {
   return (
-    <label className="field-row metadata-field">
+    <label className={`meta-field ${className}`}>
       <span>{label}</span>
       <div className="metadata-score-input">
         <input
@@ -135,6 +183,15 @@ function NumberEdit({
   );
 }
 
+const judgementLabels = [
+  ['300', 'j300'],
+  ['100', 'j100'],
+  ['50', 'j50'],
+  ['Geki', 'jgeki'],
+  ['Katu', 'jkatu'],
+  ['Miss', 'jmiss'],
+] as const;
+
 export function ReplayMetadataEditor({
   track,
   simulation,
@@ -147,7 +204,13 @@ export function ReplayMetadataEditor({
   const setMetadata = useEditorStore((state) => state.setTrackMetadata);
   const [exportName, setExportName] = useState('');
   const [exportState, setExportState] = useState('');
-  if (!track) return <p className="sample-note">Import a replay and choose its preview track.</p>;
+  if (!track)
+    return (
+      <p className="sample-note">
+        No replay
+        <InfoTip text="Import a replay and choose its preview track." />
+      </p>
+    );
   const metadata = track.exportMetadata;
   const update = (patch: Partial<ImportedReplay['metadata']>, autoScore?: boolean) =>
     setMetadata(track.id, patch, autoScore);
@@ -199,43 +262,78 @@ export function ReplayMetadataEditor({
       setExportState((error as Error).message);
     }
   };
-  if (section === 'mods')
+
+  if (section === 'mods') {
+    const active = modOptions.filter(([, bit]) => (metadata.mods & bit) !== 0);
     return (
-      <>
-        <h3>Replay mods</h3>
-        <div className="mod-grid metadata-mod-grid">
-          {modOptions.map(([name, bit]) => (
-            <button
-              key={bit}
-              type="button"
-              className={(metadata.mods & bit) !== 0 ? 'active' : ''}
-              title={
-                name === 'SV2'
-                  ? 'Stable ScoreV2: normalized score model (estimate)'
-                  : ([1, 2, 8, 16, 64, 256, 512, 1024, 4096] as number[]).includes(bit)
-                    ? `${name}: supported by the score model`
-                    : `${name}: stored in replay; its gameplay effect is not yet simulated`
-              }
-              disabled={name === 'SV2' && metadata.version >= 30000000}
-              aria-pressed={(metadata.mods & bit) !== 0}
-              onClick={() => changeMod(bit)}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
-        <NumberEdit
-          label="Bitmask"
-          value={metadata.mods}
-          max={2147483647}
-          onCommit={(mods) => update({ mods }, true)}
-        />
-        <p className="sample-note">
-          Changing mods reruns the whole replay simulation and adopts its score. Unsupported mod mechanics remain
-          estimates.
-        </p>
-      </>
+      <div className="meta-stack">
+        <MetaCard
+          title="Active mods"
+          info="Changing mods reruns the whole replay simulation and adopts its score. Mods without a simulated effect stay estimates."
+        >
+          <div className="mod-summary">
+            {active.length ? (
+              active.map(([name, , fullName, group]) => (
+                <span key={name} className={`mod-chip small ${group} active`} title={fullName}>
+                  {name}
+                </span>
+              ))
+            ) : (
+              <span className="mod-summary-empty">No mods</span>
+            )}
+            <label className="mod-bitmask" title="Raw mods bitmask">
+              <span>#</span>
+              <input
+                key={`mods-${metadata.mods}`}
+                type="number"
+                min="0"
+                max="2147483647"
+                defaultValue={metadata.mods}
+                onBlur={(event) => {
+                  const mods = Number(event.currentTarget.value);
+                  if (Number.isSafeInteger(mods) && mods >= 0 && mods !== metadata.mods) update({ mods }, true);
+                  else event.currentTarget.value = String(metadata.mods);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.currentTarget.blur();
+                }}
+              />
+            </label>
+          </div>
+        </MetaCard>
+        {modGroups.map(([group, groupLabel]) => (
+          <MetaCard key={group} title={groupLabel} collapsible={group === 'other'}>
+            <div className="mod-chip-grid">
+              {modOptions
+                .filter((option) => option[3] === group)
+                .map(([name, bit, fullName]) => {
+                  const on = (metadata.mods & bit) !== 0;
+                  return (
+                    <button
+                      key={bit}
+                      type="button"
+                      className={`mod-chip ${group}${on ? ' active' : ''}`}
+                      title={
+                        simulatedMods.includes(bit)
+                          ? `${fullName}: simulated`
+                          : `${fullName}: stored in the replay, gameplay effect not simulated`
+                      }
+                      disabled={name === 'SV2' && metadata.version >= 30000000}
+                      aria-pressed={on}
+                      onClick={() => changeMod(bit)}
+                    >
+                      <b>{name}</b>
+                      <small>{fullName}</small>
+                    </button>
+                  );
+                })}
+            </div>
+          </MetaCard>
+        ))}
+      </div>
     );
+  }
+
   const wholeSimulation = simulation?.scope === 'whole-replay' ? simulation : null;
   const suggested = wholeSimulation?.score ?? null;
   const scoreMismatch = suggested !== null && suggested !== metadata.score;
@@ -253,146 +351,202 @@ export function ReplayMetadataEditor({
   const syncSimulation = () => {
     if (wholeSimulation) update(simulationMetadataPatch(wholeSimulation, metadata), true);
   };
+  const totalHits = count(0) + count(1) + count(2) + count(5);
+  const accuracy = totalHits ? ((count(0) * 300 + count(1) * 100 + count(2) * 50) / (totalHits * 300)) * 100 : null;
+
   return (
-    <>
-      <h3>Replay metadata</h3>
-      <TextEdit label="Player" value={metadata.playerName} onCommit={(playerName) => update({ playerName })} />
-      <div className="field-row metadata-field metadata-score-row">
-        <span>Score</span>
-        <div className="metadata-score-input">
-          <input
-            key={`score-${metadata.score}`}
-            type="number"
-            min="0"
-            max="2147483647"
-            step="1"
-            defaultValue={metadata.score}
-            onBlur={(event) => {
-              const score = Number(event.currentTarget.value);
-              if (Number.isSafeInteger(score) && score >= 0 && score <= 2147483647 && score !== metadata.score)
-                update({ score }, false);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') event.currentTarget.blur();
-            }}
-          />
-          {scoreMismatch && <WarningMark label="Score" actual={metadata.score} suggested={suggested} />}
+    <div className="meta-stack">
+      <MetaCard
+        title="Score"
+        aside={
+          <span
+            className={`meta-status${track.autoScore ? ' auto' : ''}`}
+            title={track.autoScore ? 'Score follows the simulation' : 'Metadata edited by hand'}
+          >
+            {track.autoScore ? 'Auto' : 'Manual'}
+          </span>
+        }
+      >
+        <TextEdit label="Player" value={metadata.playerName} onCommit={(playerName) => update({ playerName })} />
+        <div className="meta-field">
+          <span>Score</span>
+          <div className="metadata-score-input">
+            <input
+              key={`score-${metadata.score}`}
+              type="number"
+              min="0"
+              max="2147483647"
+              step="1"
+              defaultValue={metadata.score}
+              onBlur={(event) => {
+                const score = Number(event.currentTarget.value);
+                if (Number.isSafeInteger(score) && score >= 0 && score <= 2147483647 && score !== metadata.score)
+                  update({ score }, false);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur();
+              }}
+            />
+            {scoreMismatch && <WarningMark label="Score" actual={metadata.score} suggested={suggested} />}
+            <button
+              type="button"
+              className="meta-icon-button"
+              disabled={!wholeSimulation}
+              title={
+                suggested !== null
+                  ? `Sync from simulation (score ${suggested.toLocaleString('en-US')})`
+                  : 'Sync from simulation (waiting for a whole-replay simulation)'
+              }
+              aria-label="Sync from simulation"
+              onClick={syncSimulation}
+            >
+              <RefreshCw size={13} />
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="metadata-score-actions">
-        <button type="button" disabled={!wholeSimulation} onClick={syncSimulation}>
-          <RefreshCw size={12} /> Sync from simulation
-        </button>
-        <small>
-          {track.autoScore ? 'Auto sync on' : 'Manual metadata'}
-          {suggested !== null ? ` · score ${suggested.toLocaleString('en-US')}` : ''}
-        </small>
-      </div>
-      <NumberEdit
-        label="Max combo"
-        value={metadata.maxCombo ?? 0}
-        suggested={wholeSimulation?.maxCombo}
-        max={65535}
-        onCommit={(maxCombo) => update({ maxCombo }, false)}
-      />
-      {(['300', '100', '50', 'Geki', 'Katu', 'Miss'] as const).map((label, index) => (
-        <NumberEdit
-          key={label}
-          label={label}
-          value={count(index)}
-          suggested={simulatedCounts[index]}
-          max={65535}
-          onCommit={(value) => updateCount(index, value)}
-        />
-      ))}
-      <label className="field-row metadata-field">
-        <span>Perfect</span>
-        <div className="metadata-score-input">
-          <input
-            type="checkbox"
-            checked={metadata.perfect ?? false}
-            onChange={(event) => update({ perfect: event.currentTarget.checked }, false)}
+        <div className="meta-grid">
+          <NumberEdit
+            label="Max combo"
+            value={metadata.maxCombo ?? 0}
+            suggested={wholeSimulation?.maxCombo}
+            max={65535}
+            onCommit={(maxCombo) => update({ maxCombo }, false)}
           />
-          <WarningMark label="Perfect" actual={metadata.perfect ?? false} suggested={wholeSimulation?.perfect} />
+          <label className="meta-field">
+            <span>Perfect</span>
+            <div className="metadata-score-input meta-check">
+              <input
+                type="checkbox"
+                checked={metadata.perfect ?? false}
+                onChange={(event) => update({ perfect: event.currentTarget.checked }, false)}
+              />
+              <WarningMark label="Perfect" actual={metadata.perfect ?? false} suggested={wholeSimulation?.perfect} />
+            </div>
+          </label>
         </div>
-      </label>
-      <h3>Replay header</h3>
-      <div className="field-row">
-        <span>Mode</span>
-        <div className="field-value">0 · osu!standard</div>
-      </div>
-      <NumberEdit label="Version" value={metadata.version} min={1} onCommit={(version) => update({ version }, true)} />
-      <TextEdit label="Beatmap MD5" value={metadata.beatmapHash} onCommit={(beatmapHash) => update({ beatmapHash })} />
-      <TextEdit label="Replay hash" value={metadata.replayHash} onCommit={(replayHash) => update({ replayHash })} />
-      <TextEdit
-        label="Life graph"
-        value={metadata.lifeGraph ?? ''}
-        onCommit={(lifeGraph) => update({ lifeGraph })}
-        multiline
-      />
-      <TextEdit
-        label="UTC ticks"
-        value={metadata.timestampTicks}
-        onCommit={(timestampTicks) => update({ timestampTicks })}
-      />
-      <TextEdit
-        label="Online ID"
-        value={metadata.onlineScoreId}
-        onCommit={(onlineScoreId) => update({ onlineScoreId })}
-      />
-      <NumberEdit
-        label="RNG seed"
-        value={metadata.rngSeed ?? 0}
-        min={-2147483648}
-        onCommit={(rngSeed) => update({ rngSeed })}
-      />
-      <label className="field-row metadata-field">
-        <span>Target acc.</span>
-        <input
-          type="number"
-          min="0"
-          max="1"
-          step="0.0001"
-          defaultValue={metadata.targetPracticeAccuracy ?? ''}
-          onBlur={(event) => {
-            const value = event.currentTarget.value === '' ? null : Number(event.currentTarget.value);
-            if (value === null || (Number.isFinite(value) && value >= 0 && value <= 1))
-              update({ targetPracticeAccuracy: value });
-          }}
-        />
-      </label>
-      {metadata.version >= 30000001 && (
+      </MetaCard>
+
+      <MetaCard
+        title="Judgements"
+        aside={accuracy !== null ? <span className="meta-accuracy">{accuracy.toFixed(2)}%</span> : undefined}
+      >
+        <div className="judgement-grid">
+          {judgementLabels.map(([label, tone], index) => (
+            <NumberEdit
+              key={label}
+              className={`judgement-tile ${tone}`}
+              label={label}
+              value={count(index)}
+              suggested={simulatedCounts[index]}
+              max={65535}
+              onCommit={(value) => updateCount(index, value)}
+            />
+          ))}
+        </div>
+      </MetaCard>
+
+      <MetaCard
+        title="Replay header"
+        collapsible
+        info="Beatmap title, artist and mapper live in the .osu map; this edits the .osr header. Replay hash and embedded lazer extras stay as imported until changed and may no longer describe edited data."
+      >
+        <div className="meta-grid">
+          <div className="meta-field">
+            <span>Mode</span>
+            <div className="field-value">osu!standard</div>
+          </div>
+          <NumberEdit
+            label="Version"
+            value={metadata.version}
+            min={1}
+            onCommit={(version) => update({ version }, true)}
+          />
+          <TextEdit
+            label="UTC ticks"
+            value={metadata.timestampTicks}
+            onCommit={(timestampTicks) => update({ timestampTicks })}
+          />
+          <TextEdit
+            label="Online ID"
+            value={metadata.onlineScoreId}
+            onCommit={(onlineScoreId) => update({ onlineScoreId })}
+          />
+          <NumberEdit
+            label="RNG seed"
+            value={metadata.rngSeed ?? 0}
+            min={-2147483648}
+            onCommit={(rngSeed) => update({ rngSeed })}
+          />
+          <label className="meta-field">
+            <span>Target acc.</span>
+            <input
+              type="number"
+              min="0"
+              max="1"
+              step="0.0001"
+              defaultValue={metadata.targetPracticeAccuracy ?? ''}
+              onBlur={(event) => {
+                const value = event.currentTarget.value === '' ? null : Number(event.currentTarget.value);
+                if (value === null || (Number.isFinite(value) && value >= 0 && value <= 1))
+                  update({ targetPracticeAccuracy: value });
+              }}
+            />
+          </label>
+        </div>
         <TextEdit
-          label="Lazer extra (base64)"
-          value={metadata.lazerScoreInfo ?? ''}
-          onCommit={(lazerScoreInfo) => update({ lazerScoreInfo })}
+          label="Beatmap MD5"
+          value={metadata.beatmapHash}
+          onCommit={(beatmapHash) => update({ beatmapHash })}
+        />
+        <TextEdit label="Replay hash" value={metadata.replayHash} onCommit={(replayHash) => update({ replayHash })} />
+        <TextEdit
+          label="Life graph"
+          value={metadata.lifeGraph ?? ''}
+          onCommit={(lifeGraph) => update({ lifeGraph })}
           multiline
         />
-      )}
-      <p className="sample-note">
-        Beatmap title, artist and mapper live in the .osu map. This panel edits the .osr header. Replay hash and
-        embedded lazer extras stay as imported until changed and may no longer describe edited data.
-      </p>
-      <h3>Export a copy</h3>
-      <TextEdit label="Filename" value={exportName} onCommit={setExportName} />
-      <button
-        className="metadata-export-button"
-        type="button"
-        disabled={waitingForAutoScore}
-        onClick={() => void exportReplay()}
+        {metadata.version >= 30000001 && (
+          <TextEdit
+            label="Lazer extra (base64)"
+            value={metadata.lazerScoreInfo ?? ''}
+            onCommit={(lazerScoreInfo) => update({ lazerScoreInfo })}
+            multiline
+          />
+        )}
+      </MetaCard>
+
+      <MetaCard
+        title="Export"
+        info={
+          waitingForAutoScore
+            ? 'Waiting for the whole-replay simulation. Enter a manual score if the map is unavailable.'
+            : undefined
+        }
       >
-        <Download size={14} /> Export .osr to Downloads
-      </button>
-      {waitingForAutoScore && (
-        <p className="sample-note">
-          Waiting for whole replay simulation. Enter a manual score if the map is unavailable.
-        </p>
-      )}
-      {exportState && (
-        <p className="sample-note" role="status">
-          {exportState}
-        </p>
-      )}
-    </>
+        <div className="meta-export-row">
+          <input
+            type="text"
+            placeholder={track.replay.filename}
+            value={exportName}
+            aria-label="Export filename"
+            onChange={(event) => setExportName(event.currentTarget.value)}
+          />
+          <button
+            className="metadata-export-button"
+            type="button"
+            disabled={waitingForAutoScore}
+            title="Export .osr to Downloads"
+            onClick={() => void exportReplay()}
+          >
+            <Download size={14} /> Export
+          </button>
+        </div>
+        {exportState && (
+          <p className="sample-note" role="status">
+            {exportState}
+          </p>
+        )}
+      </MetaCard>
+    </div>
   );
 }

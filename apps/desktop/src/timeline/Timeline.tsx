@@ -26,6 +26,7 @@ import { useTimelineCanvas, lanes, rulerHeight, rulerStepsMs, numericColor } fro
 import { useInputDrag } from './useInputDrag';
 import { useLaneResize } from './useLaneResize';
 import type { Resolution } from '../MapAcquisition';
+import { PanelCloseButton } from '../components/common/PanelCloseButton';
 
 const inputKeyNames: InputKey[] = ['M1', 'M2', 'K1', 'K2'];
 
@@ -48,6 +49,7 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
   );
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [followPlayback, setFollowPlayback] = useState(true);
+  const syncedScrollLeftRef = useRef<number | null>(null);
   const [timelineTool, setTimelineTool] = useState<TimelineTool>('select');
   const [layoutMode, setLayoutMode] = useState<TimelineLayout>('stack');
   const timelineLaneHeight = useEditorStore((state) => state.timelineLaneHeight);
@@ -271,7 +273,12 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
     const scrollableTime = maxWindowStart - timelineOrigin;
     const progress = scrollableTime > 0 ? (start - timelineOrigin) / scrollableTime : 0;
     const nextLeft = Math.max(0, Math.min(scrollableWidth, progress * scrollableWidth));
-    if (Math.abs(scrollbar.scrollLeft - nextLeft) > 0.5) scrollbar.scrollLeft = nextLeft;
+    if (Math.abs(scrollbar.scrollLeft - nextLeft) > 0.5) {
+      scrollbar.scrollLeft = nextLeft;
+      // The browser echoes this as a scroll event (rounded to whole pixels); remember it so
+      // onScroll doesn't mistake the follow-playback sync for the user dragging the scrollbar.
+      syncedScrollLeftRef.current = scrollbar.scrollLeft;
+    }
   }, [maxWindowStart, start, timelineOrigin, scrollbarContentScale]);
 
   const laneAtPointer = (event: ReactWheelEvent<HTMLDivElement>): number | null => {
@@ -411,6 +418,7 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
             >
               Follow
             </button>
+            <PanelCloseButton panel="timeline" />
           </div>
           {lanes.map((lane, index) => (
             <div
@@ -525,7 +533,6 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
             event.currentTarget.setPointerCapture(event.pointerId);
             dragRef.current = { x: event.clientX, start, moved: false, mode };
             if (mode === 'seek') {
-              setFollowPlayback(false);
               setPlayhead(snapPlayheadTime(start + ((event.clientX - box.left) * 1000) / pixelsPerSecond));
             }
           }}
@@ -871,6 +878,14 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
             const scrollbar = event.currentTarget;
             const scrollableWidth = scrollbar.scrollWidth - scrollbar.clientWidth;
             if (scrollableWidth <= 0) return;
+            if (
+              syncedScrollLeftRef.current !== null &&
+              Math.abs(scrollbar.scrollLeft - syncedScrollLeftRef.current) <= 1
+            ) {
+              syncedScrollLeftRef.current = null;
+              return;
+            }
+            syncedScrollLeftRef.current = null;
             const nextStart =
               timelineOrigin + (scrollbar.scrollLeft / scrollableWidth) * (maxWindowStart - timelineOrigin);
             if (Math.abs(nextStart - start) < 0.5) return;

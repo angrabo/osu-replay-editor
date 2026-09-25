@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { replayPointAt } from '@ore/beatmap-viewer';
-import { AlertTriangle, ChevronDown, File, Folder, Search } from 'lucide-react';
+import { AlertTriangle, ChevronDown, File, Folder, Search, Trash2 } from 'lucide-react';
 import { TabButton } from '../common/TabButton';
 import { useEditorStore, type BeatmapTimelineObject, type MapInfo, type Track } from '../../stores/editor';
 import type { Resolution } from '../../MapAcquisition';
+import { PanelCloseButton } from '../common/PanelCloseButton';
 
 const OBJECT_PAGE_SIZE = 150;
 const PREVIEW_WINDOW_MS = 150;
@@ -15,6 +16,7 @@ type Row = {
   objectIndex?: number;
   object?: BeatmapTimelineObject;
   hasError?: boolean;
+  trackIds?: string[];
   onClick?: () => void;
 };
 
@@ -57,7 +59,13 @@ function buildReplayRows(
   return Array.from(groups.entries())
     .sort(([, first], [, second]) => first.label.localeCompare(second.label))
     .flatMap(([hash, group]): Row[] => [
-      { label: group.label, depth: 0, type: 'folder', hasError: mapLoadStatus[hash] === 'error' },
+      {
+        label: group.label,
+        depth: 0,
+        type: 'folder',
+        hasError: mapLoadStatus[hash] === 'error',
+        trackIds: group.tracks.map((track) => track.id),
+      },
       ...group.tracks
         .slice()
         .sort((first, second) => first.replay.filename.localeCompare(second.replay.filename))
@@ -66,6 +74,7 @@ function buildReplayRows(
           depth: 1,
           type: 'file',
           hasError: mapLoadStatus[hash] === 'error',
+          trackIds: [track.id],
           onClick: group.active ? () => onSelectActiveTrack(track.id) : () => onSelectArchivedTrack(hash, track.id),
         })),
     ]);
@@ -95,6 +104,8 @@ export function Explorer({
   const [selectedFile, setSelectedFile] = useState('');
   const [visibleObjectCount, setVisibleObjectCount] = useState(OBJECT_PAGE_SIZE);
   const [hover, setHover] = useState<HoverPreview | null>(null);
+  const [pendingRemove, setPendingRemove] = useState<string | null>(null);
+  const removeTracks = useEditorStore((state) => state.removeTracks);
   const previewTrack = tracks.find((track) => track.id === previewTrackId);
 
   useEffect(() => setVisibleObjectCount(OBJECT_PAGE_SIZE), [beatmapObjects]);
@@ -146,6 +157,7 @@ export function Explorer({
         <TabButton active={tab === 'replay'} onClick={() => setTab('replay')}>
           Replays
         </TabButton>
+        <PanelCloseButton panel="explorer" className="in-tabs" />
       </div>
       <label className="search-box">
         <Search size={14} />
@@ -159,43 +171,77 @@ export function Explorer({
               row.objectIndex !== undefined
                 ? selectedBeatmapObjectIndex === row.objectIndex
                 : selectedFile === row.label;
+            const rowKey = `${row.type}:${row.trackIds?.join(',') ?? row.label}`;
+            const armed = pendingRemove === rowKey;
             return (
-              <button
+              <div
+                className="file-row-wrap"
                 key={`${row.label}-${index}`}
-                className={`file-row ${active ? 'selected' : ''}`}
-                style={{ paddingLeft: 12 + row.depth * 19 }}
-                onClick={() => {
-                  setSelectedFile(row.label);
-                  row.onClick?.();
+                onMouseLeave={() => {
+                  if (armed) setPendingRemove(null);
                 }}
-                onMouseEnter={(event) => {
-                  if (!row.object) return;
-                  const box = event.currentTarget.getBoundingClientRect();
-                  setHover({ object: row.object, top: box.top, left: box.right + 8 });
-                }}
-                onMouseLeave={() => setHover(null)}
               >
-                {row.type === 'folder' ? (
-                  <>
-                    <ChevronDown size={12} />
-                    <Folder size={15} fill="#efd099" color="#efd099" />
-                  </>
-                ) : (
-                  <>
-                    <span className="tree-spacer" />
-                    <File size={14} fill="#dce2ea" color="#dce2ea" />
-                  </>
-                )}
-                <span>{row.label}</span>
-                {row.hasError && (
-                  <span
-                    title="Beatmap failed to load"
-                    style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center' }}
+                <button
+                  className={`file-row ${active ? 'selected' : ''}`}
+                  style={{ paddingLeft: 12 + row.depth * 19 }}
+                  onClick={() => {
+                    setSelectedFile(row.label);
+                    row.onClick?.();
+                  }}
+                  onMouseEnter={(event) => {
+                    if (!row.object) return;
+                    const box = event.currentTarget.getBoundingClientRect();
+                    setHover({ object: row.object, top: box.top, left: box.right + 8 });
+                  }}
+                  onMouseLeave={() => setHover(null)}
+                >
+                  {row.type === 'folder' ? (
+                    <>
+                      <ChevronDown size={12} />
+                      <Folder size={15} fill="#efd099" color="#efd099" />
+                    </>
+                  ) : (
+                    <>
+                      <span className="tree-spacer" />
+                      <File size={14} fill="#dce2ea" color="#dce2ea" />
+                    </>
+                  )}
+                  <span>{row.label}</span>
+                  {row.hasError && (
+                    <span
+                      title="Beatmap failed to load"
+                      style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center' }}
+                    >
+                      <AlertTriangle size={13} color="#f2b880" />
+                    </span>
+                  )}
+                </button>
+                {row.trackIds?.length ? (
+                  <button
+                    type="button"
+                    className={`file-row-remove${armed ? ' armed' : ''}`}
+                    title={
+                      armed
+                        ? 'Click again to remove'
+                        : row.type === 'folder'
+                          ? `Remove all ${row.trackIds.length} replays of this map from the project`
+                          : 'Remove replay from the project'
+                    }
+                    aria-label={row.type === 'folder' ? 'Remove map replays' : 'Remove replay'}
+                    onClick={() => {
+                      if (!armed) {
+                        setPendingRemove(rowKey);
+                        return;
+                      }
+                      setPendingRemove(null);
+                      removeTracks(row.trackIds!);
+                    }}
                   >
-                    <AlertTriangle size={13} color="#f2b880" />
-                  </span>
-                )}
-              </button>
+                    <Trash2 size={12} />
+                    {armed && <span>Remove</span>}
+                  </button>
+                ) : null}
+              </div>
             );
           })}
         {tab === 'objects' && remainingObjects > 0 && (

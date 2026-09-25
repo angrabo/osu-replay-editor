@@ -1,7 +1,9 @@
 import { useState, type CSSProperties, type MouseEvent } from 'react';
+import { InfoTip } from '../InfoTip';
 import { inputVariantColor } from '@ore/beatmap-viewer';
 import { Check, Eye, EyeOff, LockKeyhole, LockKeyholeOpen, MoreVertical, Plus, Scan, X } from 'lucide-react';
 import { useEditorStore } from '../../stores/editor';
+import { PanelCloseButton } from '../common/PanelCloseButton';
 
 function trackInputColor(base: string, keyIndex: number): string {
   const numeric = Number.parseInt(base.slice(1), 16);
@@ -29,7 +31,11 @@ export function TrackList({ onImport }: { onImport: () => void }) {
         <button className="add-track" onClick={onImport}>
           <Plus size={15} /> Import Replay
         </button>
-        <span>TRACKS</span>
+        <span>
+          TRACKS
+          <InfoTip text="Ctrl+click selects multiple tracks. Double-click the preview icon to preview a track." />
+        </span>
+        <PanelCloseButton panel="tracks" />
       </div>
       <div className="track-list">
         {tracks.map((track) => (
@@ -186,7 +192,6 @@ export function TrackList({ onImport }: { onImport: () => void }) {
           </button>
         </div>
       )}
-      <div className="track-hint">Ctrl select multiple · Double click preview icon</div>
     </section>
   );
 }

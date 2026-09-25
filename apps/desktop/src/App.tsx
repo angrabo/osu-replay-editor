@@ -15,6 +15,8 @@ import { Playfield, type PlayfieldSource } from './components/playfield/Playfiel
 import { Inspector } from './components/inspector/Inspector';
 import { SelectionPanel } from './components/selection/SelectionPanel';
 import { usePanelResize } from './hooks/usePanelResize';
+import { useSelectionHeight } from './hooks/useSelectionHeight';
+import { useLayoutStore, type PanelId } from './stores/layout';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAutoUpdater } from './hooks/useAutoUpdater';
 import { formatTime, useEditorStore, type EditorState } from './stores/editor';
@@ -59,12 +61,9 @@ function currentProjectView(state: EditorState): ProjectView {
 
 export default function App() {
   const playhead = useEditorStore((state) => state.playheadMs);
-  const hasContextSelection = useEditorStore(
-    (state) =>
-      state.selectedInputs.length > 0 ||
-      state.selectedCursorRange !== null ||
-      state.selectedBeatmapObjectIndex !== null,
-  );
+  const { selectionHeight, beginSelectionResize } = useSelectionHeight();
+  const hiddenPanels = useLayoutStore((state) => state.hiddenPanels);
+  const shown = (panel: PanelId) => !hiddenPanels.includes(panel);
   const durationMs = useEditorStore((state) => state.durationMs);
   const playing = useEditorStore((state) => state.playing);
   const playbackRate = useEditorStore((state) => state.playbackRate);
@@ -269,6 +268,15 @@ export default function App() {
     '--right-width': `${rightWidth}px`,
     '--viewer-height': viewerHeight ? `${viewerHeight}px` : 'minmax(230px, 1.15fr)',
   } as CSSProperties;
+  const leftVisible = shown('explorer') || shown('tracks');
+  const rightVisible = shown('inspector') || shown('selection');
+  const workspaceColumns = [
+    leftVisible ? 'var(--left-width) 5px' : '',
+    'minmax(0, 1fr)',
+    rightVisible ? '5px var(--right-width)' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
   return (
     <div className="app-shell" style={layoutStyle} onContextMenu={(event) => event.preventDefault()}>
       <header className="app-header">
@@ -295,17 +303,28 @@ export default function App() {
           </button>
         </div>
       </header>
-      <main className="workspace">
-        <aside className="left-column">
-          <Explorer resolution={resolution} onSelectReplayTrack={handleLoadReplayGroup} />
-          <TrackList onImport={() => openAcquisition('open')} />
-        </aside>
+      <main className="workspace" style={{ gridTemplateColumns: workspaceColumns }}>
+        {leftVisible && (
+          <>
+            <aside
+              className="left-column"
+              style={shown('explorer') && shown('tracks') ? undefined : { gridTemplateRows: 'minmax(0, 1fr)' }}
+            >
+              {shown('explorer') && <Explorer resolution={resolution} onSelectReplayTrack={handleLoadReplayGroup} />}
+              {shown('tracks') && <TrackList onImport={() => openAcquisition('open')} />}
+            </aside>
+            <div
+              className="column-splitter"
+              onPointerDown={(event) => beginResize('left', event)}
+              onLostPointerCapture={clearResizeState}
+            />
+          </>
+        )}
         <div
-          className="column-splitter"
-          onPointerDown={(event) => beginResize('left', event)}
-          onLostPointerCapture={clearResizeState}
-        />
-        <div className="center-column" ref={centerRef}>
+          className="center-column"
+          ref={centerRef}
+          style={shown('timeline') ? undefined : { gridTemplateRows: 'minmax(0, 1fr) 54px' }}
+        >
           <Playfield
             resolution={resolution}
             split={splitView}
@@ -314,11 +333,13 @@ export default function App() {
             onLeftSourceChange={setLeftSource}
             onRightSourceChange={setRightSource}
           />
-          <div
-            className="viewer-splitter"
-            onPointerDown={(event) => beginResize('viewer', event)}
-            onLostPointerCapture={clearResizeState}
-          />
+          {shown('timeline') && (
+            <div
+              className="viewer-splitter"
+              onPointerDown={(event) => beginResize('viewer', event)}
+              onLostPointerCapture={clearResizeState}
+            />
+          )}
           <div className="center-transport">
             <span>
               {formatTime(playhead)} / {formatTime(durationMs)}
@@ -347,19 +368,36 @@ export default function App() {
               </select>
             </div>
           </div>
-          <section className="panel timeline-panel">
-            <Timeline resolution={resolution} />
-          </section>
+          {shown('timeline') && (
+            <section className="panel timeline-panel">
+              <Timeline resolution={resolution} />
+            </section>
+          )}
         </div>
-        <div
-          className="column-splitter"
-          onPointerDown={(event) => beginResize('right', event)}
-          onLostPointerCapture={clearResizeState}
-        />
-        <aside className={`right-column${hasContextSelection ? '' : ' selection-idle'}`}>
-          <Inspector />
-          <SelectionPanel />
-        </aside>
+        {rightVisible && (
+          <>
+            <div
+              className="column-splitter"
+              onPointerDown={(event) => beginResize('right', event)}
+              onLostPointerCapture={clearResizeState}
+            />
+            <aside
+              className="right-column"
+              style={{
+                gridTemplateRows:
+                  shown('inspector') && shown('selection')
+                    ? `minmax(140px, 1fr) 5px ${selectionHeight}px`
+                    : 'minmax(0, 1fr)',
+              }}
+            >
+              {shown('inspector') && <Inspector />}
+              {shown('inspector') && shown('selection') && (
+                <div className="row-splitter" onPointerDown={beginSelectionResize} />
+              )}
+              {shown('selection') && <SelectionPanel />}
+            </aside>
+          </>
+        )}
       </main>
       <footer className="status-bar">
         <span>

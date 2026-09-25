@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { adjacentReplayFrameTime, drawReplayCursorPath, editReplayInput, formatTime, logicalKeys, nearestReplayFrameTime, readPlayfieldPreferences, readSavedVolume, replayInputIntervals, replayInputSegments, snapTimeWithinRange, useEditorStore } from '../../apps/desktop/src/stores/editor.ts';
+import { adjacentReplayFrameTime, drawReplayCursorPath, editReplayInput, formatTime, logicalKeys, magneticDragWeights, nearestReplayFrameTime, readPlayfieldPreferences, readSavedVolume, replayInputIntervals, replayInputSegments, snapTimeWithinRange, useEditorStore } from '../../apps/desktop/src/stores/editor.ts';
 
 // Tests run in file order and deliberately share store state between blocks (an editing
 // session, not isolated units) so undo/redo and cross-track clipboard scenarios can build on
@@ -24,6 +24,34 @@ describe('adjacentReplayFrameTime', () => {
   });
 });
 
+describe('magneticDragWeights', () => {
+  const line = (points: [number, number][]) => points.map(([x, y], index) => ({ timeMs: index * 17, deltaMs: 17, x, y, keys: 0 }));
+
+  test('neighbours along the path follow with a falloff that shrinks with distance', () => {
+    const frames = line([[0, 0], [10, 0], [20, 0], [30, 0], [40, 0], [50, 0], [60, 0]]);
+    const weights = magneticDragWeights(frames, [3], 5);
+    assert.equal(weights[3], 1);
+    assert.ok(weights[2] > weights[1] && weights[1] > 0);
+    assert.ok(weights[4] > weights[5] && weights[5] > 0);
+    assert.equal(weights[0], 0);
+  });
+
+  test('a bigger drag reaches further along the path', () => {
+    const frames = line([[0, 0], [10, 0], [20, 0], [30, 0], [40, 0], [50, 0], [60, 0], [70, 0], [80, 0]]);
+    const small = magneticDragWeights(frames, [4], 5).filter((weight) => weight > 0).length;
+    const large = magneticDragWeights(frames, [4], 30).filter((weight) => weight > 0).length;
+    assert.ok(large > small);
+  });
+
+  test('a cursor reversal stays pinned and stops the pull', () => {
+    const frames = line([[0, 0], [10, 0], [20, 0], [30, 0], [20, 1], [10, 2], [0, 3]]);
+    const weights = magneticDragWeights(frames, [1], 60);
+    assert.equal(weights[3], 0);
+    assert.equal(weights[4], 0);
+    assert.ok(weights[2] > 0);
+  });
+});
+
 describe('editReplayInput and replayInputIntervals', () => {
   const editable = { filename: 'edit.osr', sourceBytes: new Uint8Array([9, 8, 7]), metadata,
     frames: [0, 17, 34].map((timeMs, index) => ({ timeMs, deltaMs: index ? 17 : 0, x: 100 + timeMs, y: 200, keys: 0 })), keyEvents: [] };
@@ -44,8 +72,9 @@ describe('editReplayInput and replayInputIntervals', () => {
     const drawn = drawReplayCursorPath(inserted, 0, 34, [
       { x: 0, y: 0, offsetMs: 0 }, { x: 512, y: 384, offsetMs: 10 }, { x: 0, y: 0, offsetMs: 20 },
     ]);
-    const midpoint = drawn.frames.find((item) => item.timeMs === 17);
-    assert.deepEqual(midpoint && [midpoint.x, midpoint.y], [512, 384]);
+    assert.deepEqual(drawn.frames.map((item) => item.timeMs), [0, 10, 27, 34]);
+    const tap = drawn.frames.find((item) => item.timeMs === 10);
+    assert.deepEqual(tap && [tap.x, tap.y], [301.2, 225.9]);
     assert.deepEqual(drawn.keyEvents, inserted.keyEvents);
     assert.deepEqual(Array.from(drawn.sourceBytes), [9, 8, 7]);
   });
@@ -54,7 +83,16 @@ describe('editReplayInput and replayInputIntervals', () => {
     const smoothed = drawReplayCursorPath(inserted, 0, 34, [
       { x: 0, y: 0, offsetMs: 0 }, { x: 512, y: 384, offsetMs: 10 }, { x: 0, y: 0, offsetMs: 20 },
     ], 'strong');
-    assert.ok((smoothed.frames.find((item) => item.timeMs === 17)?.x ?? 512) < 100);
+    assert.ok((smoothed.frames.find((item) => item.timeMs === 10)?.x ?? 512) < 100);
+  });
+
+  test('drawReplayCursorPath resamples to ~60 fps frames plus input frames, not one per pointer sample', () => {
+    const dense = Array.from({ length: 200 }, (_, index) => ({ x: index, y: index, offsetMs: index }));
+    const drawn = drawReplayCursorPath(inserted, 0, 200, dense);
+    const times = drawn.frames.filter((item) => item.timeMs >= 0 && item.timeMs <= 200).map((item) => item.timeMs);
+    assert.ok(times.includes(10) && times.includes(27));
+    for (let index = 1; index < times.length; index++) assert.ok(times[index] - times[index - 1] <= 17);
+    assert.ok(times.length <= 15);
   });
 
   test('replayInputSegments splits an input at a recorded cut point', () => {
@@ -441,7 +479,9 @@ describe('moveCursorFrameTime and drawCursorPath guard rails', () => {
     const beforeRetime = useEditorStore.getState().tracks[0].replay;
     useEditorStore.getState().selectTimeRange({ startMs: 0, endMs: 34 });
     useEditorStore.getState().drawCursorPath(rippleTrackId, [{ x: 10, y: 20, offsetMs: 0 }, { x: 256, y: 192, offsetMs: 5 }, { x: 490, y: 360, offsetMs: 10 }]);
-    assert.ok((useEditorStore.getState().tracks[0].replay.frames.find((item) => item.timeMs === 17)?.x ?? 0) > 200);
+    assert.ok(
+      useEditorStore.getState().tracks[0].replay.frames.some((item) => item.timeMs > 0 && item.timeMs < 34 && item.x > 200),
+    );
     assert.deepEqual(useEditorStore.getState().tracks[0].replay.keyEvents, beforeRetime.keyEvents);
     useEditorStore.getState().undo();
     assert.deepEqual(useEditorStore.getState().tracks[0].replay.frames, beforeRetime.frames);
@@ -572,5 +612,29 @@ describe('invertCursorAxis', () => {
     const lockedMirrorFrames = useEditorStore.getState().tracks[0].replay.frames;
     useEditorStore.getState().invertCursorAxis('x');
     assert.equal(useEditorStore.getState().tracks[0].replay.frames, lockedMirrorFrames);
+  });
+});
+
+describe('removeTracks', () => {
+  test('removes an active replay, repoints the preview and clears undo history', () => {
+    useEditorStore.getState().clearReplays();
+    useEditorStore.getState().importReplay({ ...first, filename: 'a.osr' });
+    useEditorStore.getState().importReplay({ ...first, filename: 'b.osr' });
+    const [keptTrack, removedTrack] = useEditorStore.getState().tracks;
+    useEditorStore.getState().setPreviewTrack(removedTrack.id);
+    useEditorStore.getState().removeTracks([removedTrack.id]);
+    const state = useEditorStore.getState();
+    assert.deepEqual(state.tracks.map((track) => track.id), [keptTrack.id]);
+    assert.equal(state.previewTrackId, keptTrack.id);
+    assert.equal(state.undoStack.length, 0);
+    assert.match(state.lastEditMessage, /Removed 1 replay/);
+  });
+
+  test('removes archived replays without touching the active map', () => {
+    const active = useEditorStore.getState().tracks;
+    useEditorStore.setState({ archivedTracks: [{ ...active[0], id: 'archived-1' }] });
+    useEditorStore.getState().removeTracks(['archived-1']);
+    assert.equal(useEditorStore.getState().archivedTracks.length, 0);
+    assert.equal(useEditorStore.getState().tracks, active);
   });
 });

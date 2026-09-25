@@ -1,8 +1,11 @@
 import { BeatmapCanvas } from '../../playfield/BeatmapCanvas';
 import type { Resolution } from '../../MapAcquisition';
 import { useEditorStore } from '../../stores/editor';
-import { formatAccuracy } from '../../utils/formatAccuracy';
 import { EditorQuickbar } from './EditorQuickbar';
+import { SimulationOverlay } from './SimulationOverlay';
+import { ToolOptionsBar } from './ToolOptionsBar';
+import { SnapWidget, SnapZoneProvider } from '../../hooks/useSnapDrag';
+import { usePanelVisible } from '../../stores/layout';
 
 export type PlayfieldSource = 'preview' | 'original' | `track:${string}`;
 
@@ -25,6 +28,8 @@ export function Playfield({
   const tracks = useEditorStore((state) => state.tracks);
   const setEditorSurface = useEditorStore((state) => state.setEditorSurface);
   const simulations = useEditorStore((state) => state.simulationByTrack);
+  const toolOptionsVisible = usePanelVisible('toolOptions');
+  const simulationVisible = usePanelVisible('simulation');
   const sourceTrack = (source: PlayfieldSource) => (source.startsWith('track:') ? source.slice(6) : previewId);
   const sourceOriginal = (source: PlayfieldSource) => source === 'original';
   const sourceLabel = (source: PlayfieldSource) =>
@@ -58,45 +63,39 @@ export function Playfield({
     const interactive = side === 'left' && source === 'preview';
     return (
       <div className={`playfield-pane playfield-pane-${side}`} key={side}>
-        {split && (
-          <label className="playfield-source">
-            <span>{side === 'left' ? 'LEFT' : 'RIGHT'}</span>
-            <select
-              value={source}
-              onChange={(event) =>
-                (side === 'left' ? onLeftSourceChange : onRightSourceChange)(event.target.value as PlayfieldSource)
-              }
-            >
-              {sourceOptions}
-            </select>
-          </label>
-        )}
-        <BeatmapCanvas
-          key={`${side}-${split ? 'split' : 'single'}`}
-          resolution={resolution}
-          trackId={trackId}
-          original={sourceOriginal(source)}
-          clock={side === 'left'}
-          interactive={interactive}
-        />
-        {interactive && <EditorQuickbar />}
-        {simulation && (
-          <div className="score-overlay simulation-score-overlay">
-            <small>{simulation.status === 'verified' ? 'SIMULATION VERIFIED' : 'SIMULATION ESTIMATE'}</small>
-            <strong>{simulation.score.toLocaleString('en-US')}</strong>
-            <span>{formatAccuracy(simulation)}%</span>
-            <small>
-              {simulation.maxCombo}x · {simulation.misses} miss
-            </small>
-          </div>
-        )}
-        <div className="preview-badge">
-          {trackId
-            ? `${sourceOriginal(source) ? 'ORIGINAL' : 'REPLAY'} · ${sourceLabel(source)}`
-            : resolution
-              ? `BEATMAP · ${resolution.source}`
-              : 'NO MAP LOADED'}
-        </div>
+        <SnapZoneProvider insets={{ top: split ? 38 : 8, right: 8, bottom: 8, left: 8 }}>
+          {split && (
+            <label className="playfield-source">
+              <span>{side === 'left' ? 'LEFT' : 'RIGHT'}</span>
+              <select
+                value={source}
+                onChange={(event) =>
+                  (side === 'left' ? onLeftSourceChange : onRightSourceChange)(event.target.value as PlayfieldSource)
+                }
+              >
+                {sourceOptions}
+              </select>
+            </label>
+          )}
+          <BeatmapCanvas
+            key={`${side}-${split ? 'split' : 'single'}`}
+            resolution={resolution}
+            trackId={trackId}
+            original={sourceOriginal(source)}
+            clock={side === 'left'}
+            interactive={interactive}
+          />
+          {interactive && <EditorQuickbar />}
+          {interactive && toolOptionsVisible && <ToolOptionsBar />}
+          {simulation && simulationVisible && <SimulationOverlay simulation={simulation} />}
+          <SnapWidget id="previewBadge" panel="previewBadge" fallback="bottom-right" className="preview-badge">
+            {trackId
+              ? `${sourceOriginal(source) ? 'ORIGINAL' : 'REPLAY'} · ${sourceLabel(source)}`
+              : resolution
+                ? `BEATMAP · ${resolution.source}`
+                : 'NO MAP LOADED'}
+          </SnapWidget>
+        </SnapZoneProvider>
       </div>
     );
   };

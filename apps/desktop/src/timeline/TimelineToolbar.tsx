@@ -3,6 +3,7 @@ import { Activity, ChevronRight, Hand, Layers3, Magnet, MousePointer2, RefreshCw
 import { useEditorStore } from '../stores/editor';
 import type { Resolution } from '../MapAcquisition';
 import { useSimulationRunner } from '../hooks/useSimulationRunner';
+import { InfoTip } from '../components/InfoTip';
 
 const baseLaneHeight = 48;
 export type TimelineLayout = 'stack' | 'overlap';
@@ -94,8 +95,10 @@ export function TimelineToolbar({
           <span className="live-dot" />
         </button>
         <div className="premiere-popover timeline-simulation-panel">
-          <strong>Simulation · Live</strong>
-          <small>Recalculates 350 ms after replay or metadata changes.</small>
+          <strong className="popover-title">
+            Simulation · Live
+            <InfoTip text="Recalculates 350 ms after replay or metadata changes." />
+          </strong>
           <label>
             <span>Scope</span>
             <select
@@ -136,8 +139,10 @@ export function TimelineToolbar({
           )}
         </button>
         <div className="premiere-popover timeline-snap-panel">
-          <strong>Playhead Snap · Shift+S</strong>
-          <small>Snaps only near a boundary. Shift+S cycles modes 1–3, then turns snap off.</small>
+          <strong className="popover-title">
+            Playhead Snap · Shift+S
+            <InfoTip text="Snaps only near a boundary. Shift+S cycles modes 1–3, then turns snap off." />
+          </strong>
           <button className={snap === 'off' ? 'active' : ''} onClick={() => setSnap('off')}>
             Off
           </button>
@@ -166,7 +171,6 @@ export function TimelineToolbar({
         </button>
         <div className="premiere-popover timeline-options-panel">
           <strong>Timeline display</strong>
-          <small>Track layout and lane sizing</small>
           <div className="mode-buttons">
             <button className={layoutMode === 'stack' ? 'active' : ''} onClick={() => setLayoutMode(() => 'stack')}>
               <Rows3 size={13} /> Stack

@@ -6,6 +6,8 @@ import { ReplayMetadataEditor } from '../../ReplayMetadataEditor';
 import { formatTime, logicalKeys, nearestReplayFrameTime, useEditorStore } from '../../stores/editor';
 import { formatAccuracy } from '../../utils/formatAccuracy';
 import { CursorTimingControl } from './CursorTimingControl';
+import { InfoTip } from '../InfoTip';
+import { PanelCloseButton } from '../common/PanelCloseButton';
 
 function InspectorSection({ title, children }: { title: string; children: ReactNode }) {
   const [open, setOpen] = useState(true);
@@ -58,6 +60,7 @@ export function Inspector() {
         <TabButton active={tab === 'metadata'} onClick={() => setTab('metadata')}>
           Metadata
         </TabButton>
+        <PanelCloseButton panel="inspector" className="in-tabs" />
       </div>
       {tab === 'inspector' && (
         <div className="inspector-body">
@@ -123,7 +126,10 @@ export function Inspector() {
                 <Field label="Mods" value={String(track.exportMetadata.mods)} />
               </>
             ) : (
-              <p className="sample-note">Import a replay and choose its preview track.</p>
+              <p className="sample-note">
+                No replay
+                <InfoTip text="Import a replay and choose its preview track." />
+              </p>
             )}
           </InspectorSection>
 

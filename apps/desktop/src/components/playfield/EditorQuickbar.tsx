@@ -11,6 +11,10 @@ import {
   Clock3,
 } from 'lucide-react';
 import { useEditorStore, type Tool } from '../../stores/editor';
+import { OptionTilesPopover } from './OptionTilesPopover';
+import { SnapWidget } from '../../hooks/useSnapDrag';
+import { optionPreviews } from './optionPreviews';
+import { InfoTip } from '../InfoTip';
 
 export function EditorQuickbar() {
   const tool = useEditorStore((state) => state.tool);
@@ -35,17 +39,29 @@ export function EditorQuickbar() {
   const setDrawRangeSnap = useEditorStore((state) => state.setDrawRangeSnap);
   const brushRadiusPx = useEditorStore((state) => state.brushRadiusPx);
   const setBrushRadiusPx = useEditorStore((state) => state.setBrushRadiusPx);
+  const brushStrength = useEditorStore((state) => state.brushStrength);
+  const setBrushStrength = useEditorStore((state) => state.setBrushStrength);
+  const magneticMove = useEditorStore((state) => state.magneticMove);
+  const setMagneticMove = useEditorStore((state) => state.setMagneticMove);
   const tools: { id: Tool; icon: React.ReactNode; label: string }[] = [
-    { id: 'select', icon: <MousePointer2 size={16} />, label: 'Move cursor frame' },
-    { id: 'hand', icon: <Hand size={16} />, label: 'Pan playfield' },
+    { id: 'select', icon: <MousePointer2 size={16} />, label: 'Select cursor frames, Ctrl+click adds (V)' },
+    { id: 'hand', icon: <Hand size={16} />, label: 'Pan playfield (H)' },
     { id: 'draw', icon: <Pencil size={16} />, label: 'Draw cursor path in selected time range' },
-    { id: 'curve', icon: <Spline size={16} />, label: 'Edit cursor line nodes' },
+    { id: 'curve', icon: <Spline size={16} />, label: 'Move cursor frames (T)' },
     { id: 'brush', icon: <Brush size={16} />, label: 'Warp nearby cursor points, strongest at the center' },
     { id: 'split', icon: <Scissors size={16} />, label: 'Split selected input at playhead' },
     { id: 'zoom', icon: <Scan size={16} />, label: 'Zoom playfield' },
   ];
   return (
-    <div className="editor-quickbar" aria-label="Editor tools">
+    <SnapWidget
+      id="quickbar"
+      panel="quickbar"
+      fallback="top-left"
+      order={1}
+      grip
+      className="editor-quickbar"
+      ariaLabel="Editor tools"
+    >
       {tools.map((item) =>
         item.id === 'draw' ? (
           <div className="quickbar-popover-host" key={item.id}>
@@ -58,8 +74,10 @@ export function EditorQuickbar() {
               {item.icon}
             </button>
             <div className="premiere-popover quickbar-popover draw-smoothing-popover">
-              <strong>Draw smoothing</strong>
-              <small>Smoothing is applied when the drawn stroke is committed.</small>
+              <strong className="popover-title">
+                Draw smoothing
+                <InfoTip text="Smoothing is applied when the drawn stroke is committed." />
+              </strong>
               <div className="quickbar-choice-grid">
                 {(['off', 'light', 'medium', 'strong'] as const).map((value) => (
                   <button
@@ -81,6 +99,34 @@ export function EditorQuickbar() {
               </label>
             </div>
           </div>
+        ) : item.id === 'curve' ? (
+          <div className="quickbar-popover-host" key={item.id}>
+            <button
+              className={tool === item.id ? 'active' : ''}
+              title={item.label}
+              aria-label={item.label}
+              onClick={() => setTool(item.id)}
+            >
+              {item.icon}
+            </button>
+            <div className="premiere-popover quickbar-popover">
+              <strong className="popover-title">
+                Move cursor frames
+                <InfoTip text="Drag a frame to move it with every selected frame. Ctrl+click adds to the selection." />
+              </strong>
+              <label className="quickbar-toggle">
+                <input
+                  type="checkbox"
+                  checked={magneticMove}
+                  onChange={(event) => setMagneticMove(event.target.checked)}
+                />
+                <span>
+                  Magnetic
+                  <InfoTip text="Neighbouring frames along the path follow smoothly. Reach grows with the drag; sharp corners and cursor reversals stay pinned." />
+                </span>
+              </label>
+            </div>
+          </div>
         ) : item.id === 'brush' ? (
           <div className="quickbar-popover-host" key={item.id}>
             <button
@@ -92,8 +138,10 @@ export function EditorQuickbar() {
               {item.icon}
             </button>
             <div className="premiere-popover quickbar-popover">
-              <strong>Brush radius</strong>
-              <small>Nearby cursor points warp toward the drag, strongest at the brush center.</small>
+              <strong className="popover-title">
+                Brush
+                <InfoTip text="Nearby cursor points warp toward the drag, strongest at the brush center. Strength sets how much of the drag each dab applies." />
+              </strong>
               <label>
                 <span>Radius</span>
                 <input
@@ -105,6 +153,18 @@ export function EditorQuickbar() {
                   onChange={(event) => setBrushRadiusPx(Number(event.target.value) || 4)}
                 />
                 <output>{brushRadiusPx} px</output>
+              </label>
+              <label>
+                <span>Strength</span>
+                <input
+                  type="range"
+                  min="5"
+                  max="100"
+                  step="5"
+                  value={Math.round(brushStrength * 100)}
+                  onChange={(event) => setBrushStrength(Number(event.target.value) / 100)}
+                />
+                <output>{Math.round(brushStrength * 100)}%</output>
               </label>
             </div>
           </div>
@@ -121,69 +181,58 @@ export function EditorQuickbar() {
         ),
       )}
       <div className="quickbar-divider" />
-      <div className="quickbar-popover-host">
-        <button title="Cursor overlay visibility" aria-label="Cursor overlay visibility">
-          <Eye size={16} />
-        </button>
-        <div className="premiere-popover quickbar-popover cursor-overlay-popover">
-          <strong>Cursor overlays</strong>
-          <small>Choose which replay guides are drawn around the current cursor.</small>
-          {(
-            [
-              ['past', 'Gray past trail', showCursorPast],
-              ['future', 'White future trail', showCursorFuture],
-              ['input-paths', 'Input colour paths', showInputPaths],
-              ['click-markers', 'Press/release circles', showClickMarkers],
-            ] as const
-          ).map(([option, label, checked]) => (
-            <label className="quickbar-toggle" key={option}>
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={(event) => setCursorDisplay(option, event.target.checked)}
-              />
-              <span>{label}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-      <div className="quickbar-popover-host">
-        <button
-          className={wireframeGameplay || fadeAfterClick || showHitJudgements || showHiddenFade ? 'active' : ''}
-          title="Gameplay filters"
-          aria-label="Gameplay filters"
-        >
-          <SlidersHorizontal size={16} />
-        </button>
-        <div className="premiere-popover quickbar-popover gameplay-filters-popover">
-          <strong>Gameplay filters</strong>
-          <small>Changes apply immediately to the playfield.</small>
-          {(
-            [
-              ['wireframeGameplay', 'Wireframe gameplay', wireframeGameplay],
-              ['fadeAfterClick', 'Fade after click', fadeAfterClick],
-              ['showHitJudgements', 'Show 100, 50 and misses', showHitJudgements],
-              ['showHiddenFade', 'Show Hidden fade', showHiddenFade],
-            ] as const
-          ).map(([filter, label, checked]) => (
-            <label className="quickbar-toggle" key={filter}>
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={(event) => setGameplayFilter(filter, event.target.checked)}
-              />
-              <span>{label}</span>
-            </label>
-          ))}
-        </div>
-      </div>
+      <OptionTilesPopover
+        icon={<Eye size={16} />}
+        label="Cursor overlay visibility"
+        title="Cursor overlays"
+        description="Choose which replay guides are drawn around the current cursor."
+        storageKey="osu-replay-editor.popover-size.cursor-overlays"
+        tiles={(
+          [
+            ['past', 'Gray past trail', showCursorPast, optionPreviews.pastTrail],
+            ['future', 'White future trail', showCursorFuture, optionPreviews.futureTrail],
+            ['input-paths', 'Input colour paths', showInputPaths, optionPreviews.inputPaths],
+            ['click-markers', 'Press/release circles', showClickMarkers, optionPreviews.clickMarkers],
+          ] as const
+        ).map(([option, label, checked, preview]) => ({
+          id: option,
+          label,
+          checked,
+          preview,
+          onToggle: (next) => setCursorDisplay(option, next),
+        }))}
+      />
+      <OptionTilesPopover
+        icon={<SlidersHorizontal size={16} />}
+        label="Gameplay filters"
+        title="Gameplay filters"
+        description="Changes apply immediately to the playfield."
+        storageKey="osu-replay-editor.popover-size.gameplay-filters"
+        active={wireframeGameplay || fadeAfterClick || showHitJudgements || showHiddenFade}
+        tiles={(
+          [
+            ['wireframeGameplay', 'Wireframe gameplay', wireframeGameplay, optionPreviews.wireframe],
+            ['fadeAfterClick', 'Fade after click', fadeAfterClick, optionPreviews.fadeAfterClick],
+            ['showHitJudgements', 'Show 100, 50 and misses', showHitJudgements, optionPreviews.judgements],
+            ['showHiddenFade', 'Show Hidden fade', showHiddenFade, optionPreviews.hiddenFade],
+          ] as const
+        ).map(([filter, label, checked, preview]) => ({
+          id: filter,
+          label,
+          checked,
+          preview,
+          onToggle: (next) => setGameplayFilter(filter, next),
+        }))}
+      />
       <div className="quickbar-popover-host">
         <button title="Timeline scroll step" aria-label="Timeline scroll step">
           <Clock3 size={16} />
         </button>
         <div className="premiere-popover quickbar-popover">
-          <strong>Scroll controls</strong>
-          <small>Wheel seeks time · Ctrl zooms · Alt resizes the hovered timeline lane</small>
+          <strong className="popover-title">
+            Scroll controls
+            <InfoTip text="Wheel seeks time · Ctrl zooms · Alt resizes the hovered timeline lane" />
+          </strong>
           <label>
             <span>Step</span>
             <select
@@ -214,6 +263,6 @@ export function EditorQuickbar() {
           </div>
         </div>
       </div>
-    </div>
+    </SnapWidget>
   );
 }
