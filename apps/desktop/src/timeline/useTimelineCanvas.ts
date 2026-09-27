@@ -1,5 +1,5 @@
 import { Application, Graphics } from 'pixi.js';
-import { inputVariantColor } from '@ore/beatmap-viewer';
+import { inputVariantColor, speedColor, type SliderBreak } from '@ore/beatmap-viewer';
 import { useEffect, useRef, useState } from 'react';
 import {
   logicalKeys,
@@ -48,6 +48,9 @@ export function useTimelineCanvas(params: {
   selected: string[];
   layoutMode: TimelineLayout;
   simulation: SimulationResult | null;
+  sliderBreaks: readonly SliderBreak[];
+  // Colour the cursor X/Y curves by cursor speed, like the playfield speed heatmap.
+  showCursorSpeed: boolean;
   xForTime: (time: number) => number;
   laneTop: (lane: number) => number;
 }) {
@@ -62,6 +65,8 @@ export function useTimelineCanvas(params: {
     selected,
     layoutMode,
     simulation,
+    sliderBreaks,
+    showCursorSpeed,
     xForTime,
     laneTop,
   } = params;
@@ -138,6 +143,24 @@ export function useTimelineCanvas(params: {
       const lastFrame = Math.min(frames.length, lowerBound<ReplayFrame>(frames, endTime) + 1);
       for (const laneIndex of [1, 2]) {
         const baseY = laneTop(laneIndex) + laneHeights[laneIndex] / 2;
+        const laneY = (frame: ReplayFrame) =>
+          baseY -
+          ((laneIndex === 1 ? frame.x : frame.y) / (laneIndex === 1 ? 512 : 384) - 0.5) * (laneHeights[laneIndex] - 7);
+        if (showCursorSpeed) {
+          const width = selected.includes(track.id) ? 2.2 : 1.5;
+          for (let index = Math.max(1, firstFrame); index < lastFrame; index++) {
+            const previous = frames[index - 1];
+            const frame = frames[index];
+            const dt = frame.timeMs - previous.timeMs;
+            if (dt <= 0) continue;
+            const speed = Math.hypot(frame.x - previous.x, frame.y - previous.y) / dt;
+            graphics
+              .moveTo(xForTime(previous.timeMs), laneY(previous))
+              .lineTo(xForTime(frame.timeMs), laneY(frame))
+              .stroke({ color: speedColor(speed), width, alpha: selectedAlpha });
+          }
+          continue;
+        }
         let started = false;
         for (let index = firstFrame; index < lastFrame; index++) {
           const frame = frames[index];
@@ -195,6 +218,24 @@ export function useTimelineCanvas(params: {
       }
     });
 
+    {
+      // Slider breaks: a thin bar where the cursor lost the slider, a bright tick at each tick,
+      // repeat or tail that was checked while lost.
+      const y = laneTop(7) + laneHeights[7] / 2;
+      for (const item of sliderBreaks) {
+        for (const lost of item.lost) {
+          const left = xForTime(lost.startMs);
+          const right = xForTime(lost.endMs);
+          if (right < -4 || left > canvasWidth + 4) continue;
+          graphics.rect(left, y + 6, Math.max(2, right - left), 3).fill({ color: 0xff4d5e, alpha: 0.55 });
+        }
+        for (const time of item.missedChecks) {
+          const x = xForTime(time);
+          if (x < -4 || x > canvasWidth + 4) continue;
+          graphics.rect(x - 1, y - 7, 2, 18).fill({ color: 0xff4d5e, alpha: 0.95 });
+        }
+      }
+    }
     if (simulation) {
       const y = laneTop(7) + laneHeights[7] / 2;
       const colours = { '100': 0x59d98e, '50': 0xf29a4a, miss: 0xff6575 } as const;
@@ -276,6 +317,8 @@ export function useTimelineCanvas(params: {
     laneHeights,
     layoutMode,
     simulation,
+    sliderBreaks,
+    showCursorSpeed,
   ]);
 
   return { hostRef, width };

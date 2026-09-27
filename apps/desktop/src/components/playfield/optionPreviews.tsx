@@ -146,6 +146,70 @@ export const optionPreviews = {
       <SliderEndSample y={52} tone="#5fe3ff" inner="#2b4f5c" label="lazer" />
     </Frame>
   ),
+  frameMarkers: (
+    <Frame>
+      <path d="M14 50 C36 44 52 26 70 24 S96 30 108 18" fill="none" stroke="#c5ccd4" strokeWidth="1.4" opacity="0.7" />
+      {[
+        [14, 50],
+        [30, 46],
+        [45, 36],
+        [58, 27],
+        [72, 24],
+        [86, 26],
+        [98, 24],
+        [108, 18],
+      ].map(([x, y]) => (
+        <g key={`${x}-${y}`} stroke={PINK} strokeWidth="1.6" strokeLinecap="round">
+          <line x1={x - 3} y1={y - 3} x2={x + 3} y2={y + 3} />
+          <line x1={x + 3} y1={y - 3} x2={x - 3} y2={y + 3} />
+        </g>
+      ))}
+    </Frame>
+  ),
+  speedHeatmap: (
+    <Frame>
+      <defs>
+        <linearGradient id="speed-heatmap-preview" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stopColor="#3a5bff" />
+          <stop offset="0.3" stopColor="#2fc8f0" />
+          <stop offset="0.5" stopColor="#3ee07a" />
+          <stop offset="0.72" stopColor="#ffd84d" />
+          <stop offset="1" stopColor="#ff3b4e" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M12 52 C30 50 36 44 46 40 S70 22 108 16"
+        fill="none"
+        stroke="url(#speed-heatmap-preview)"
+        strokeWidth="4"
+        strokeLinecap="round"
+      />
+      <text x="12" y="66" fontSize="7" fill="#7f95ab">
+        slow
+      </text>
+      <text x="108" y="66" fontSize="7" fill="#7f95ab" textAnchor="end">
+        fast
+      </text>
+    </Frame>
+  ),
+  sliderTracking: (
+    <Frame>
+      <path d="M18 46 Q60 8 102 46" fill="none" stroke="#fff" strokeWidth="21" strokeLinecap="round" />
+      <path d="M18 46 Q60 8 102 46" fill="none" stroke={PINK} strokeWidth="18" strokeLinecap="round" />
+      <path d="M18 46 Q60 8 102 46" fill="none" stroke="#11151c" strokeWidth="15" strokeLinecap="round" />
+      <path
+        d="M52 28 Q63 24 76 29"
+        fill="none"
+        stroke="#ff4d5e"
+        strokeWidth="15"
+        strokeLinecap="round"
+        opacity="0.65"
+      />
+      <circle cx="88" cy="36" r="17" fill="#ff4d5e1f" stroke="#ff4d5e" strokeWidth="1.2" />
+      <circle cx="88" cy="36" r="4" fill="#fff" />
+      <Cursor x={104} y={16} />
+    </Frame>
+  ),
   hiddenFade: (
     <Frame>
       <HitCircle x={24} y={38} n="1" opacity={0.12} />

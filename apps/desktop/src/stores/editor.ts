@@ -1,3 +1,6 @@
+import type { SliderBreak } from '@ore/beatmap-viewer';
+// Plain module without runtime imports, so the store also loads under node's test runner.
+import { DEFAULT_CURSOR_LAYER_ORDER, normalizeCursorLayerOrder, type CursorLayerId } from '@ore/beatmap-viewer/layers';
 import { create } from 'zustand';
 
 export type Track = {
@@ -65,6 +68,8 @@ export type BeatmapTimelineObject = {
   x: number;
   y: number;
 };
+// A user note pinned to a moment on the timeline; saved with the project.
+export type TimelineMarker = { id: string; timeMs: number; note: string };
 // Hit windows (± ms around the object time) for the previewed replay's mods.
 export type HitWindows = { great: number; ok: number; meh: number };
 export function hitWindowsForOd(od: number): HitWindows {
@@ -166,11 +171,17 @@ export type EditorState = {
   showHitJudgements: boolean;
   showHiddenFade: boolean;
   showSliderEndWindows: boolean;
+  showSliderTracking: boolean;
   playfieldZoom: number;
   cursorTrailMs: number;
   showCursorPast: boolean;
   showCursorFuture: boolean;
   showInputPaths: boolean;
+  showCursorSpeed: boolean;
+  showFrameMarkers: boolean;
+  // Cursor overlay drawing order, first = on top.
+  cursorLayerOrder: CursorLayerId[];
+  setCursorLayerOrder: (order: CursorLayerId[]) => void;
   showClickMarkers: boolean;
   cursorSmoothing: CursorSmoothing;
   drawRangeSnap: boolean;
@@ -232,17 +243,35 @@ export type EditorState = {
   setShowGrid: (show: boolean) => void;
   setCompactMode: (enabled: boolean) => void;
   setGameplayFilter: (
-    filter: 'wireframeGameplay' | 'fadeAfterClick' | 'showHitJudgements' | 'showHiddenFade' | 'showSliderEndWindows',
+    filter:
+      | 'wireframeGameplay'
+      | 'fadeAfterClick'
+      | 'showHitJudgements'
+      | 'showHiddenFade'
+      | 'showSliderEndWindows'
+      | 'showSliderTracking',
     enabled: boolean,
   ) => void;
   setPlayfieldZoom: (zoom: number) => void;
   setCursorTrailMs: (duration: number) => void;
-  setCursorDisplay: (option: 'past' | 'future' | 'input-paths' | 'click-markers', show: boolean) => void;
+  setCursorDisplay: (
+    option: 'past' | 'future' | 'input-paths' | 'click-markers' | 'speed' | 'frame-markers',
+    show: boolean,
+  ) => void;
   setCursorSmoothing: (smoothing: CursorSmoothing) => void;
   setDrawRangeSnap: (enabled: boolean) => void;
   setEditorSurface: (surface: EditorSurface) => void;
   setBeatmapObjects: (objects: BeatmapTimelineObject[]) => void;
   hitWindows: HitWindows | null;
+  // Where the previewed replay lost sliders (from the main playfield).
+  sliderBreaks: SliderBreak[];
+  setSliderBreaks: (breaks: SliderBreak[]) => void;
+  markers: TimelineMarker[];
+  editingMarkerId: string | null;
+  addMarker: (timeMs: number, note?: string) => string;
+  updateMarker: (id: string, patch: Partial<Omit<TimelineMarker, 'id'>>) => void;
+  removeMarker: (id: string) => void;
+  setEditingMarker: (id: string | null) => void;
   setHitWindows: (windows: HitWindows | null) => void;
   setSimulationRunning: (trackId: string) => void;
   setSimulationResult: (trackId: string, result: SimulationResult) => void;
@@ -327,12 +356,16 @@ const gameplayFilterStorageKeys = {
   showHitJudgements: 'osu-replay-editor.filter-hit-judgements',
   showHiddenFade: 'osu-replay-editor.filter-hidden-fade',
   showSliderEndWindows: 'osu-replay-editor.filter-slider-end-windows',
+  showSliderTracking: 'osu-replay-editor.filter-slider-tracking',
 } as const;
 const zoomStorageKey = 'osu-replay-editor.playfield-zoom';
 const trailStorageKey = 'osu-replay-editor.cursor-trail-ms';
 const cursorPastStorageKey = 'osu-replay-editor.cursor-past';
 const cursorFutureStorageKey = 'osu-replay-editor.cursor-future';
 const inputPathsStorageKey = 'osu-replay-editor.cursor-input-paths';
+const cursorSpeedStorageKey = 'osu-replay-editor.cursor-speed-heatmap';
+const frameMarkersStorageKey = 'osu-replay-editor.cursor-frame-markers';
+const cursorLayerOrderStorageKey = 'osu-replay-editor.cursor-layer-order';
 const clickMarkersStorageKey = 'osu-replay-editor.cursor-click-markers';
 const smoothingStorageKey = 'osu-replay-editor.cursor-smoothing';
 const drawRangeSnapStorageKey = 'osu-replay-editor.draw-range-snap';
@@ -373,7 +406,15 @@ function readTimelineWheelPreferences(): { timelineWheelMode: TimelineWheelMode;
 
 function readCursorEditingPreferences(): Pick<
   EditorState,
-  'showCursorPast' | 'showCursorFuture' | 'showInputPaths' | 'showClickMarkers' | 'cursorSmoothing' | 'drawRangeSnap'
+  | 'showCursorPast'
+  | 'showCursorFuture'
+  | 'showInputPaths'
+  | 'showCursorSpeed'
+  | 'showFrameMarkers'
+  | 'cursorLayerOrder'
+  | 'showClickMarkers'
+  | 'cursorSmoothing'
+  | 'drawRangeSnap'
 > {
   try {
     const smoothing = localStorage.getItem(smoothingStorageKey);
@@ -381,6 +422,11 @@ function readCursorEditingPreferences(): Pick<
       showCursorPast: localStorage.getItem(cursorPastStorageKey) !== 'false',
       showCursorFuture: localStorage.getItem(cursorFutureStorageKey) !== 'false',
       showInputPaths: localStorage.getItem(inputPathsStorageKey) !== 'false',
+      showCursorSpeed: localStorage.getItem(cursorSpeedStorageKey) === 'true',
+      showFrameMarkers: localStorage.getItem(frameMarkersStorageKey) !== 'false',
+      cursorLayerOrder: normalizeCursorLayerOrder(
+        JSON.parse(localStorage.getItem(cursorLayerOrderStorageKey) ?? 'null'),
+      ),
       showClickMarkers: localStorage.getItem(clickMarkersStorageKey) !== 'false',
       cursorSmoothing: smoothing === 'off' || smoothing === 'light' || smoothing === 'strong' ? smoothing : 'medium',
       drawRangeSnap: localStorage.getItem(drawRangeSnapStorageKey) !== 'false',
@@ -390,6 +436,9 @@ function readCursorEditingPreferences(): Pick<
       showCursorPast: true,
       showCursorFuture: true,
       showInputPaths: true,
+      showCursorSpeed: false,
+      showFrameMarkers: true,
+      cursorLayerOrder: [...DEFAULT_CURSOR_LAYER_ORDER],
       showClickMarkers: true,
       cursorSmoothing: 'medium',
       drawRangeSnap: true,
@@ -422,6 +471,7 @@ export function readPlayfieldPreferences(): Pick<
   | 'showHitJudgements'
   | 'showHiddenFade'
   | 'showSliderEndWindows'
+  | 'showSliderTracking'
   | 'playfieldZoom'
   | 'cursorTrailMs'
 > {
@@ -445,6 +495,7 @@ export function readPlayfieldPreferences(): Pick<
       showHitJudgements: localStorage.getItem(gameplayFilterStorageKeys.showHitJudgements) === 'true',
       showHiddenFade: localStorage.getItem(gameplayFilterStorageKeys.showHiddenFade) === 'true',
       showSliderEndWindows: localStorage.getItem(gameplayFilterStorageKeys.showSliderEndWindows) === 'true',
+      showSliderTracking: localStorage.getItem(gameplayFilterStorageKeys.showSliderTracking) !== 'false',
       playfieldZoom: Number.isFinite(zoom) && zoom >= 0.5 && zoom <= 2.5 ? zoom : 1,
       cursorTrailMs: Number.isFinite(trail) && trail >= 0 && trail <= 5000 ? trail : 220,
     };
@@ -460,6 +511,7 @@ export function readPlayfieldPreferences(): Pick<
       showHitJudgements: false,
       showHiddenFade: false,
       showSliderEndWindows: false,
+      showSliderTracking: true,
       playfieldZoom: 1,
       cursorTrailMs: 220,
     };
@@ -822,6 +874,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   editorSurface: null,
   beatmapObjects: [],
   hitWindows: null,
+  sliderBreaks: [],
+  markers: [],
+  editingMarkerId: null,
   simulationByTrack: {},
   windowStartMs: 0,
   timelineFocusRequest: 0,
@@ -901,6 +956,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   clearReplays: () =>
     set({
       tracks: [],
+      markers: [],
+      editingMarkerId: null,
       selectedTrackIds: [],
       previewTrackId: null,
       selectionAnchorId: null,
@@ -1197,12 +1254,23 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     set({ cursorTrailMs });
   },
+  setCursorLayerOrder: (order) => {
+    const cursorLayerOrder = normalizeCursorLayerOrder(order);
+    try {
+      localStorage.setItem(cursorLayerOrderStorageKey, JSON.stringify(cursorLayerOrder));
+    } catch {
+      /* The current session remains usable. */
+    }
+    set({ cursorLayerOrder });
+  },
   setCursorDisplay: (option, show) => {
     const mapping = {
       past: ['showCursorPast', cursorPastStorageKey],
       future: ['showCursorFuture', cursorFutureStorageKey],
       'input-paths': ['showInputPaths', inputPathsStorageKey],
       'click-markers': ['showClickMarkers', clickMarkersStorageKey],
+      speed: ['showCursorSpeed', cursorSpeedStorageKey],
+      'frame-markers': ['showFrameMarkers', frameMarkersStorageKey],
     } as const;
     const [field, storageKey] = mapping[option];
     try {
@@ -1231,6 +1299,28 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setEditorSurface: (editorSurface) => set({ editorSurface }),
   setBeatmapObjects: (beatmapObjects) => set({ beatmapObjects, selectedBeatmapObjectIndex: null }),
   setHitWindows: (hitWindows) => set({ hitWindows }),
+  setSliderBreaks: (sliderBreaks) => set({ sliderBreaks }),
+  addMarker: (timeMs, note = '') => {
+    const id = `marker-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    set((state) => ({
+      markers: [...state.markers, { id, timeMs: Math.round(timeMs), note }].sort((a, b) => a.timeMs - b.timeMs),
+    }));
+    return id;
+  },
+  updateMarker: (id, patch) =>
+    set((state) => ({
+      markers: state.markers
+        .map((marker) =>
+          marker.id === id ? { ...marker, ...patch, timeMs: Math.round(patch.timeMs ?? marker.timeMs) } : marker,
+        )
+        .sort((a, b) => a.timeMs - b.timeMs),
+    })),
+  removeMarker: (id) =>
+    set((state) => ({
+      markers: state.markers.filter((marker) => marker.id !== id),
+      editingMarkerId: state.editingMarkerId === id ? null : state.editingMarkerId,
+    })),
+  setEditingMarker: (editingMarkerId) => set({ editingMarkerId }),
   setSimulationRunning: (trackId) =>
     set((state) => ({
       simulationByTrack: { ...state.simulationByTrack, [trackId]: { status: 'running', result: null, error: '' } },

@@ -11,6 +11,7 @@ export function TimelineContextMenu({
   canPaste,
   onPasteAtTime,
   onPasteInPlace,
+  onAddMarker,
   inputKeys,
   onAddInput,
   canDeleteSelected,
@@ -25,6 +26,7 @@ export function TimelineContextMenu({
   canPaste: boolean;
   onPasteAtTime: (timeMs: number) => void;
   onPasteInPlace: () => void;
+  onAddMarker: (timeMs: number) => void;
   inputKeys: readonly InputKey[];
   onAddInput: (key: InputKey, timeMs: number) => void;
   canDeleteSelected: boolean;
@@ -65,6 +67,15 @@ export function TimelineContextMenu({
         }}
       >
         Paste in place
+      </button>
+      <div className="context-separator" />
+      <button
+        onClick={() => {
+          onAddMarker(menu.timeMs);
+          onClose();
+        }}
+      >
+        Add marker here
       </button>
       <div className="context-separator" />
       {inputKeys.map((key) => (

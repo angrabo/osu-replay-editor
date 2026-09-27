@@ -17,25 +17,20 @@ import { APP_VERSION } from './appMeta';
 import { UpdateDiagnostics } from './UpdateDiagnostics';
 import type { UpdateCheckResult } from './hooks/useAutoUpdater';
 import { Spinner } from './components/common/Loading';
+import { KeybindSettings } from './components/settings/KeybindSettings';
+import { InfoTip } from './components/InfoTip';
+import { clearRecentFiles, readRecentFiles } from './recentFiles';
 
 type AccountSettings = { rememberSession: boolean; storageDirectory: string };
 type CategoryId =
-  | 'general'
-  | 'account'
-  | 'editor'
-  | 'playback'
-  | 'timeline'
-  | 'appearance'
-  | 'filters'
-  | 'files'
-  | 'shortcuts'
-  | 'advanced';
+  'general' | 'account' | 'playback' | 'timeline' | 'appearance' | 'filters' | 'files' | 'shortcuts' | 'advanced';
 type Category = {
   id: CategoryId;
   label: string;
   icon: ReactNode;
   keywords: string;
-  items: { title: string; description: string }[];
+  // `planned` items are not built yet and are listed with a Planned badge.
+  items: { title: string; description: string; planned?: boolean }[];
 };
 
 const categories: Category[] = [
@@ -45,8 +40,8 @@ const categories: Category[] = [
     icon: <Settings2 size={17} />,
     keywords: 'startup language updates restore project',
     items: [
-      { title: 'Startup behavior', description: 'Choose what opens when the editor starts.' },
-      { title: 'Language and updates', description: 'Application language and update preferences.' },
+      { title: 'Updates', description: 'Check GitHub for a newer signed build.' },
+      { title: 'Changelog', description: 'What changed in this and past versions.' },
     ],
   },
   {
@@ -62,16 +57,6 @@ const categories: Category[] = [
     ],
   },
   {
-    id: 'editor',
-    label: 'Editor',
-    icon: <SlidersHorizontal size={17} />,
-    keywords: 'cursor input editing snap undo autosave',
-    items: [
-      { title: 'Editing defaults', description: 'Defaults for cursor, key input and snapping tools.' },
-      { title: 'Undo history', description: 'History size and editing safeguards.' },
-    ],
-  },
-  {
     id: 'playback',
     label: 'Playback',
     icon: <Play size={17} />,
@@ -82,8 +67,8 @@ const categories: Category[] = [
     id: 'timeline',
     label: 'Timeline',
     icon: <Clock3 size={17} />,
-    keywords: 'zoom lanes grid waveform',
-    items: [{ title: 'Timeline display', description: 'Visible lanes, grid density and zoom behavior.' }],
+    keywords: 'lanes lane height layout',
+    items: [{ title: 'Lane height', description: 'Default height of timeline lanes.' }],
   },
   {
     id: 'appearance',
@@ -106,26 +91,24 @@ const categories: Category[] = [
     icon: <FolderOpen size={17} />,
     keywords: 'folder cache osu beatmap replay export paths',
     items: [
-      { title: 'Storage locations', description: 'Project, beatmap cache and export folders.' },
-      { title: 'osu! installation', description: 'Optional local beatmap discovery.' },
+      { title: 'Recent files', description: 'Projects and replays listed under File › Open recent.' },
+      { title: 'Settings location', description: 'Where the editor keeps its settings and cache.' },
+      { title: 'osu! installation', description: 'Optional local beatmap discovery.', planned: true },
     ],
   },
   {
     id: 'shortcuts',
     label: 'Keyboard',
     icon: <Keyboard size={17} />,
-    keywords: 'hotkeys keybind shortcuts controls',
-    items: [
-      { title: 'Frame stepping', description: 'Left Arrow: previous replay frame · Right Arrow: next replay frame.' },
-      { title: 'Playback and editor', description: 'Space: play/pause · Ctrl+Z/Ctrl+Y: undo/redo · Ctrl+,: settings.' },
-    ],
+    keywords: 'hotkeys keybind keybinds shortcuts controls keys',
+    items: [{ title: 'Keyboard shortcuts', description: 'Rebind every editor shortcut.' }],
   },
   {
     id: 'advanced',
     label: 'Advanced',
     icon: <Wrench size={17} />,
     keywords: 'api diagnostics logs sidecar developer',
-    items: [{ title: 'Diagnostics', description: 'Engine status, logs and troubleshooting tools.' }],
+    items: [{ title: 'Diagnostics', description: 'Engine status, logs and troubleshooting tools.', planned: true }],
   },
 ];
 
@@ -163,8 +146,12 @@ export function SettingsDialog({
   const showHitJudgements = useEditorStore((state) => state.showHitJudgements);
   const showHiddenFade = useEditorStore((state) => state.showHiddenFade);
   const showSliderEndWindows = useEditorStore((state) => state.showSliderEndWindows);
+  const showSliderTracking = useEditorStore((state) => state.showSliderTracking);
   const setGameplayFilter = useEditorStore((state) => state.setGameplayFilter);
   const cursorTrailMs = useEditorStore((state) => state.cursorTrailMs);
+  const defaultLaneHeight = useEditorStore((state) => state.timelineDefaultLaneHeight);
+  const saveDefaultLaneHeight = useEditorStore((state) => state.saveDefaultTimelineLaneHeight);
+  const [recentCount, setRecentCount] = useState(() => readRecentFiles().length);
   const setCursorTrailMs = useEditorStore((state) => state.setCursorTrailMs);
 
   useEffect(() => {
@@ -256,255 +243,201 @@ export function SettingsDialog({
               <section className="settings-category" key={category.id}>
                 <div className="settings-category-heading">
                   <span>{category.icon}</span>
-                  <div>
-                    <h3>{category.label}</h3>
-                    <small>
-                      {normalizedQuery
-                        ? 'Search result'
-                        : `${category.items.length} ${category.items.length === 1 ? 'option' : 'options'}`}
-                    </small>
-                  </div>
+                  <h3>{category.label}</h3>
+                  {normalizedQuery && <small>Search result</small>}
                 </div>
                 {category.id === 'general' ? (
                   <>
-                    <div className="setting-preview">
-                      <div>
-                        <strong>Version {APP_VERSION}</strong>
-                        <small>
-                          {updateCheckResult === 'checking' ? (
-                            <>
-                              <Spinner size={9} /> Checking for updates
-                            </>
-                          ) : updateCheckResult === 'up-to-date' ? (
-                            "You're on the latest version."
-                          ) : updateCheckResult === 'error' ? (
-                            'Could not check for updates.'
-                          ) : (
-                            'Check GitHub for a newer signed build.'
-                          )}
-                        </small>
-                      </div>
-                      <button
-                        className="primary-button"
-                        disabled={updateCheckResult === 'checking'}
-                        onClick={onCheckForUpdates}
+                    <div className="setting-list">
+                      <SettingRow
+                        title={`Version ${APP_VERSION}`}
+                        info={
+                          updateCheckResult === 'up-to-date'
+                            ? "You're on the latest version."
+                            : updateCheckResult === 'error'
+                              ? 'Could not check for updates.'
+                              : 'Check GitHub for a newer signed build.'
+                        }
                       >
-                        Check for updates
-                      </button>
-                    </div>
-                    <div className="setting-preview">
-                      <div>
-                        <strong>Changelog</strong>
-                        <small>See what changed in this and past versions.</small>
-                      </div>
-                      <button onClick={onOpenChangelog}>View changelog</button>
+                        {updateCheckResult === 'checking' && <Spinner size={9} />}
+                        <button
+                          className="primary-button"
+                          disabled={updateCheckResult === 'checking'}
+                          onClick={onCheckForUpdates}
+                        >
+                          Check for updates
+                        </button>
+                      </SettingRow>
+                      <SettingRow title="Changelog" info="What changed in this and past versions.">
+                        <button onClick={onOpenChangelog}>View</button>
+                      </SettingRow>
                     </div>
                     {import.meta.env.DEV && <UpdateDiagnostics />}
                   </>
                 ) : category.id === 'account' ? (
-                  <>
-                    <label className="setting-check">
-                      <input
-                        type="checkbox"
-                        checked={remember}
-                        onChange={(event) => setRemember(event.target.checked)}
-                      />
-                      <span>
-                        <strong>Remember signed-in session</strong>
-                        <small>Encrypt the access token for this Windows user and restore it until it expires.</small>
-                      </span>
-                    </label>
-                    <p className="settings-note">
-                      Turning this off immediately removes the stored token. Passwords and verification codes are never
-                      saved.
-                    </p>
+                  <div className="setting-list">
+                    <ToggleRow
+                      title="Remember signed-in session"
+                      info="Encrypts the osu! access token for this Windows user and restores it until it expires. Turning this off removes the stored token right away. Passwords and verification codes are never saved."
+                      checked={remember}
+                      onChange={setRemember}
+                    />
                     {settings && (
-                      <div className="settings-path">
-                        <span>Settings location</span>
-                        <code>{settings.storageDirectory}</code>
-                      </div>
+                      <SettingRow title="Settings location">
+                        <code className="setting-path">{settings.storageDirectory}</code>
+                      </SettingRow>
                     )}
-                  </>
+                  </div>
+                ) : category.id === 'timeline' ? (
+                  <div className="setting-list">
+                    <SliderRow
+                      title="Default lane height"
+                      info="Applied to every lane now and when the app starts."
+                      min={20}
+                      max={140}
+                      step={2}
+                      value={defaultLaneHeight}
+                      unit="px"
+                      onChange={saveDefaultLaneHeight}
+                    />
+                  </div>
+                ) : category.id === 'files' ? (
+                  <div className="setting-list">
+                    <SettingRow title="Recent files" info="Projects and replays listed under File › Open recent.">
+                      <span className="setting-value">{recentCount ? `${recentCount} saved` : 'Empty'}</span>
+                      <button
+                        disabled={!recentCount}
+                        onClick={() => {
+                          clearRecentFiles();
+                          setRecentCount(0);
+                        }}
+                      >
+                        Clear
+                      </button>
+                    </SettingRow>
+                    {settings && (
+                      <SettingRow title="Settings location">
+                        <code className="setting-path">{settings.storageDirectory}</code>
+                      </SettingRow>
+                    )}
+                  </div>
+                ) : category.id === 'shortcuts' ? (
+                  <KeybindSettings query={normalizedQuery} />
                 ) : category.id === 'playback' ? (
-                  <label className="setting-volume">
-                    <span>
-                      <strong>Volume</strong>
-                      <small>Saved automatically and restored when the app starts.</small>
-                    </span>
-                    <div>
-                      <input
-                        aria-label="Playback volume"
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={volume}
-                        onChange={(event) => setVolume(Number(event.target.value))}
-                      />
-                      <output>{volume}%</output>
-                    </div>
-                  </label>
+                  <div className="setting-list">
+                    <SliderRow
+                      title="Volume"
+                      info="Saved automatically and restored when the app starts."
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={volume}
+                      unit="%"
+                      onChange={setVolume}
+                    />
+                  </div>
                 ) : category.id === 'filters' ? (
-                  <div className="setting-playfield">
-                    <label className="setting-check">
-                      <input
-                        type="checkbox"
-                        checked={wireframeGameplay}
-                        onChange={(event) => setGameplayFilter('wireframeGameplay', event.target.checked)}
-                      />
-                      <span>
-                        <strong>Wireframe gameplay</strong>
-                        <small>Show object outlines and paths without filled circles.</small>
-                      </span>
-                    </label>
-                    <label className="setting-check">
-                      <input
-                        type="checkbox"
-                        checked={fadeAfterClick}
-                        onChange={(event) => setGameplayFilter('fadeAfterClick', event.target.checked)}
-                      />
-                      <span>
-                        <strong>Fade after click</strong>
-                        <small>Fade a hit circle from its simulated hit time.</small>
-                      </span>
-                    </label>
-                    <label className="setting-check">
-                      <input
-                        type="checkbox"
-                        checked={showHitJudgements}
-                        onChange={(event) => setGameplayFilter('showHitJudgements', event.target.checked)}
-                      />
-                      <span>
-                        <strong>Show 100, 50 and misses</strong>
-                        <small>Show fading result markers from replay simulation.</small>
-                      </span>
-                    </label>
-                    <label className="setting-check">
-                      <input
-                        type="checkbox"
-                        checked={showHiddenFade}
-                        onChange={(event) => setGameplayFilter('showHiddenFade', event.target.checked)}
-                      />
-                      <span>
-                        <strong>Show Hidden fade</strong>
-                        <small>Preview early fading and hide approach circles when HD is active.</small>
-                      </span>
-                    </label>
-                    <label className="setting-check">
-                      <input
-                        type="checkbox"
-                        checked={showSliderEndWindows}
-                        onChange={(event) => setGameplayFilter('showSliderEndWindows', event.target.checked)}
-                      />
-                      <span>
-                        <strong>Show slider end windows</strong>
-                        <small>
-                          Mark where slider ends are judged: one moment on stable, the final stretch on lazer.
-                        </small>
-                      </span>
-                    </label>
+                  <div className="setting-list">
+                    <ToggleRow
+                      title="Wireframe gameplay"
+                      info="Object outlines and paths without filled circles."
+                      checked={wireframeGameplay}
+                      onChange={(value) => setGameplayFilter('wireframeGameplay', value)}
+                    />
+                    <ToggleRow
+                      title="Fade after click"
+                      info="Fade a hit circle from its simulated hit time."
+                      checked={fadeAfterClick}
+                      onChange={(value) => setGameplayFilter('fadeAfterClick', value)}
+                    />
+                    <ToggleRow
+                      title="Show 100, 50 and misses"
+                      info="Fading result markers from the replay simulation."
+                      checked={showHitJudgements}
+                      onChange={(value) => setGameplayFilter('showHitJudgements', value)}
+                    />
+                    <ToggleRow
+                      title="Show Hidden fade"
+                      info="Preview early fading and hide approach circles when HD is active."
+                      checked={showHiddenFade}
+                      onChange={(value) => setGameplayFilter('showHiddenFade', value)}
+                    />
+                    <ToggleRow
+                      title="Show slider breaks"
+                      info="Paint the parts of a slider the cursor did not track in red."
+                      checked={showSliderTracking}
+                      onChange={(value) => setGameplayFilter('showSliderTracking', value)}
+                    />
+                    <ToggleRow
+                      title="Show slider end windows"
+                      info="Where slider ends are judged: one moment on stable, the final stretch on lazer."
+                      checked={showSliderEndWindows}
+                      onChange={(value) => setGameplayFilter('showSliderEndWindows', value)}
+                    />
                   </div>
                 ) : category.id === 'appearance' ? (
-                  <div className="setting-playfield">
-                    <label className="setting-check">
-                      <input
-                        type="checkbox"
-                        checked={showBackground}
-                        onChange={(event) => setShowBackground(event.target.checked)}
-                      />
-                      <span>
-                        <strong>Show beatmap background</strong>
-                        <small>Use the image from the cached beatmap archive when available.</small>
-                      </span>
-                    </label>
-                    <label className="setting-check">
-                      <input
-                        type="checkbox"
-                        checked={showGrid}
-                        onChange={(event) => setShowGrid(event.target.checked)}
-                      />
-                      <span>
-                        <strong>Show playfield grid</strong>
-                        <small>Draw the 512×384 editor grid and boundary.</small>
-                      </span>
-                    </label>
-                    <label className="setting-check">
-                      <input
-                        type="checkbox"
-                        checked={compactMode}
-                        onChange={(event) => setCompactMode(event.target.checked)}
-                      />
-                      <span>
-                        <strong>Compact mode</strong>
-                        <small>Smaller slider ticks, cursor paths and click markers. Saved automatically.</small>
-                      </span>
-                    </label>
-                    <label className="setting-volume">
-                      <span>
-                        <strong>Background dim</strong>
-                        <small>0% keeps the image bright; 100% makes it black.</small>
-                      </span>
-                      <div>
-                        <input
-                          aria-label="Background dim"
-                          type="range"
-                          min="0"
-                          max="100"
-                          step="1"
-                          value={backgroundDim}
-                          disabled={!showBackground}
-                          onChange={(event) => setBackgroundDim(Number(event.target.value))}
-                        />
-                        <output>{backgroundDim}%</output>
-                      </div>
-                    </label>
-                    <label className="setting-volume">
-                      <span>
-                        <strong>Cursor size</strong>
-                        <small>Size of the replay cursor on the playfield.</small>
-                      </span>
-                      <div>
-                        <input
-                          aria-label="Cursor size"
-                          type="range"
-                          min="50"
-                          max="200"
-                          step="5"
-                          value={cursorSize}
-                          onChange={(event) => setCursorSize(Number(event.target.value))}
-                        />
-                        <output>{cursorSize}%</output>
-                      </div>
-                    </label>
-                    <label className="setting-volume">
-                      <span>
-                        <strong>Cursor history</strong>
-                        <small>Duration of the thin movement line and click markers.</small>
-                      </span>
-                      <div>
-                        <input
-                          aria-label="Cursor trail duration"
-                          type="range"
-                          min="0"
-                          max="2000"
-                          step="50"
-                          value={cursorTrailMs}
-                          onChange={(event) => setCursorTrailMs(Number(event.target.value))}
-                        />
-                        <output>{cursorTrailMs} ms</output>
-                      </div>
-                    </label>
+                  <div className="setting-list">
+                    <ToggleRow
+                      title="Beatmap background"
+                      info="Use the image from the cached beatmap archive when available."
+                      checked={showBackground}
+                      onChange={setShowBackground}
+                    />
+                    <SliderRow
+                      title="Background dim"
+                      info="0% keeps the image bright; 100% makes it black."
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={backgroundDim}
+                      unit="%"
+                      disabled={!showBackground}
+                      onChange={setBackgroundDim}
+                    />
+                    <ToggleRow
+                      title="Playfield grid"
+                      info="Draw the 512×384 editor grid and boundary."
+                      checked={showGrid}
+                      onChange={setShowGrid}
+                    />
+                    <ToggleRow
+                      title="Compact mode"
+                      info="Smaller slider ticks, cursor paths and click markers."
+                      checked={compactMode}
+                      onChange={setCompactMode}
+                    />
+                    <SliderRow
+                      title="Cursor size"
+                      info="Size of the replay cursor on the playfield."
+                      min={50}
+                      max={200}
+                      step={5}
+                      value={cursorSize}
+                      unit="%"
+                      onChange={setCursorSize}
+                    />
+                    <SliderRow
+                      title="Cursor history"
+                      info="How long the thin movement line and click markers stay."
+                      min={0}
+                      max={2000}
+                      step={50}
+                      value={cursorTrailMs}
+                      unit="ms"
+                      onChange={setCursorTrailMs}
+                    />
                   </div>
-                ) : (
-                  category.items.map((item) => (
-                    <div className="setting-preview" key={item.title}>
-                      <div>
-                        <strong>{item.title}</strong>
-                        <small>{item.description}</small>
-                      </div>
-                      <span>Planned</span>
-                    </div>
-                  ))
+                ) : null}
+                {category.items.some((item) => item.planned) && (
+                  <div className="setting-list">
+                    {category.items
+                      .filter((item) => item.planned)
+                      .map((item) => (
+                        <SettingRow key={item.title} title={item.title} info={item.description} muted>
+                          <span className="setting-planned">Planned</span>
+                        </SettingRow>
+                      ))}
+                  </div>
                 )}
               </section>
             ))}
@@ -521,5 +454,92 @@ export function SettingsDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+/// One compact settings line: title (with an optional info tooltip) and its control on the right.
+function SettingRow({
+  title,
+  info,
+  muted,
+  children,
+}: {
+  title: string;
+  info?: string;
+  muted?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <div className={muted ? 'setting-row muted' : 'setting-row'}>
+      <span className="setting-row-title">
+        {title}
+        {info && <InfoTip text={info} />}
+      </span>
+      <div className="setting-row-control">{children}</div>
+    </div>
+  );
+}
+
+function ToggleRow({
+  title,
+  info,
+  checked,
+  onChange,
+}: {
+  title: string;
+  info?: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <SettingRow title={title} info={info}>
+      <input
+        type="checkbox"
+        className="setting-switch"
+        aria-label={title}
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+    </SettingRow>
+  );
+}
+
+function SliderRow({
+  title,
+  info,
+  min,
+  max,
+  step,
+  value,
+  unit,
+  disabled,
+  onChange,
+}: {
+  title: string;
+  info?: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  unit: string;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <SettingRow title={title} info={info}>
+      <input
+        type="range"
+        aria-label={title}
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+      <output>
+        {value} {unit}
+      </output>
+    </SettingRow>
   );
 }

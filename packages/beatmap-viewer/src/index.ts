@@ -1,6 +1,8 @@
 export type { ParsedBeatmap, HitObject, HitCircle, HitSlider, HitSpinner, TimingPoint, Point } from './parser';
 export { parseOsu, approachPreempt, applyPreviewMods } from './parser';
-export { PixiBeatmapViewer } from './viewer';
+export { PixiBeatmapViewer, CAPTURE_SCALE } from './viewer';
+export { sliderBreaks, type SliderBreak } from './tracking';
+export { SPEED_STOPS, speedColor } from './speed';
 export { replayPointAt } from './replay';
 export {
   objectAlpha,
@@ -38,11 +40,19 @@ export type PreviewJudgement = {
   hitTime: number | null;
   startTime: number;
 };
+export { DEFAULT_CURSOR_LAYER_ORDER, normalizeCursorLayerOrder, type CursorLayerId } from './layers';
+import type { CursorLayerId } from './layers';
 export type ViewerOptions = {
   showCursorTrail: boolean;
   showCursorPast: boolean;
   showCursorFuture: boolean;
   showInputPaths: boolean;
+  // Colour the cursor path by speed: blue slow, then green and yellow, red fast.
+  showCursorSpeed: boolean;
+  // The small × on every replay frame.
+  showFrameMarkers: boolean;
+  // Drawing order of the cursor overlays, first = on top.
+  cursorLayerOrder: readonly CursorLayerId[];
   showClickMarkers: boolean;
   showBackground: boolean;
   backgroundDim: number;
@@ -56,6 +66,8 @@ export type ViewerOptions = {
   showHiddenFade: boolean;
   // Mark where the slider end is judged: stable checks one moment, lazer a window before the end.
   showSliderEndWindows: boolean;
+  // Paint the parts of a slider the cursor did not track in red.
+  showSliderTracking: boolean;
   zoom: number;
   cursorTrailMs: number;
   // Hit object picked in the editor (timeline or object list), outlined on the playfield.

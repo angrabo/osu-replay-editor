@@ -1,3 +1,4 @@
+import { shortcutLabel } from '../../keybindings';
 export function EditMenu({
   scopeLabel,
   canUndo,
@@ -17,10 +18,10 @@ export function EditMenu({
     <div className="app-menu" role="menu">
       <span className="menu-scope">{scopeLabel}</span>
       <button role="menuitem" disabled={!canUndo} onClick={onUndo}>
-        Undo <kbd>Ctrl+Z</kbd>
+        Undo {shortcutLabel('undo') && <kbd>{shortcutLabel('undo')}</kbd>}
       </button>
       <button role="menuitem" disabled={!canRedo} onClick={onRedo}>
-        Redo <kbd>Ctrl+Y</kbd>
+        Redo {shortcutLabel('redo') && <kbd>{shortcutLabel('redo')}</kbd>}
       </button>
       <div className="menu-separator" />
       <button role="menuitem" onClick={() => onInvertAxis('x')}>

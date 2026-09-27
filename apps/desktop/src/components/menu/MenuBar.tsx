@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AcquisitionAction } from '../../MapAcquisition';
 import { timelineStart, useEditorStore } from '../../stores/editor';
 import { FileMenu } from './FileMenu';
+import type { RecentFile } from '../../recentFiles';
 import { EditMenu } from './EditMenu';
 import { ViewMenu } from './ViewMenu';
 import { PlaybackMenu } from './PlaybackMenu';
@@ -19,6 +20,8 @@ export function MenuBar({
   setChangelogOpen,
   onSaveProject,
   onOpenProject,
+  onOpenRecent,
+  onExportClip,
 }: {
   openAcquisition: (action: AcquisitionAction) => void;
   splitView: boolean;
@@ -28,6 +31,8 @@ export function MenuBar({
   setChangelogOpen: (value: boolean) => void;
   onSaveProject: () => void;
   onOpenProject: () => void;
+  onOpenRecent: (entry: RecentFile) => void;
+  onExportClip: () => void;
 }) {
   const tracks = useEditorStore((state) => state.tracks);
   const playing = useEditorStore((state) => state.playing);
@@ -96,6 +101,14 @@ export function MenuBar({
             }}
             onOpenProject={() => {
               onOpenProject();
+              setMenuOpen(null);
+            }}
+            onOpenRecent={(entry) => {
+              onOpenRecent(entry);
+              setMenuOpen(null);
+            }}
+            onExportClip={() => {
+              onExportClip();
               setMenuOpen(null);
             }}
           />

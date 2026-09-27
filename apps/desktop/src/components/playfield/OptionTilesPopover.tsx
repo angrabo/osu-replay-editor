@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { InfoTip } from '../InfoTip';
-import { Check } from 'lucide-react';
+import { Check, Layers } from 'lucide-react';
+import { LayerOrderPanel, type LayerOrderItem } from './LayerOrderPanel';
 
 export type OptionTile = {
   id: string;
@@ -36,6 +37,7 @@ export function OptionTilesPopover({
   storageKey,
   tiles,
   active,
+  order,
 }: {
   icon: ReactNode;
   label: string;
@@ -44,6 +46,8 @@ export function OptionTilesPopover({
   storageKey: string;
   tiles: OptionTile[];
   active?: boolean;
+  // Optional drawing-order editor, opened as a side panel next to the tiles.
+  order?: { items: LayerOrderItem[]; onChange: (ids: string[]) => void };
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -52,6 +56,7 @@ export function OptionTilesPopover({
   const hoveredRef = useRef(false);
   const [size, setSize] = useState(() => readSize(storageKey) ?? { width: 340, height: 300 });
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  const [orderOpen, setOrderOpen] = useState(false);
 
   const cancelClose = () => {
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
@@ -160,6 +165,17 @@ export function OptionTilesPopover({
               <strong className="popover-title">
                 {title}
                 <InfoTip text={description} />
+                {order && (
+                  <button
+                    type="button"
+                    className={`layer-order-toggle${orderOpen ? ' active' : ''}`}
+                    title="Drawing order"
+                    aria-pressed={orderOpen}
+                    onClick={() => setOrderOpen(!orderOpen)}
+                  >
+                    <Layers size={12} /> Order
+                  </button>
+                )}
               </strong>
               <div className="option-tiles">
                 {tiles.map((tile) => (
@@ -182,6 +198,35 @@ export function OptionTilesPopover({
                 ))}
               </div>
             </div>
+          </div>,
+          document.body,
+        )}
+      {position &&
+        order &&
+        orderOpen &&
+        createPortal(
+          <div
+            className="premiere-popover layer-order-panel"
+            style={
+              position.left + size.width + 6 + 200 <= window.innerWidth - 8
+                ? { left: position.left + size.width + 6, top: position.top }
+                : { left: Math.max(8, position.left - 206), top: position.top }
+            }
+            onPointerEnter={open}
+            onPointerLeave={scheduleClose}
+          >
+            <strong className="popover-title">
+              Drawing order
+              <InfoTip text="Drag layers to change which overlay is drawn on top." />
+            </strong>
+            <LayerOrderPanel
+              items={order.items}
+              onChange={order.onChange}
+              onDragStateChange={(dragging) => {
+                pinnedRef.current = dragging;
+                if (!dragging && !hoveredRef.current) scheduleClose();
+              }}
+            />
           </div>,
           document.body,
         )}

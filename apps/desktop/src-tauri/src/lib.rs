@@ -44,6 +44,30 @@ fn stop_sidecar_for_update(state: tauri::State<'_, SidecarState>) {
     }
 }
 
+/// <summary>
+/// Reads a replay (.osr) or project (.oreproj) by path, for File > Open recent: paths remembered
+/// from earlier sessions are outside the dialog-granted file scope, so they go through here.
+/// Other file types are refused so this cannot be used to read arbitrary files.
+/// </summary>
+#[tauri::command]
+fn read_user_file(path: String) -> Result<tauri::ipc::Response, String> {
+    let path = PathBuf::from(path);
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase());
+    if !matches!(extension.as_deref(), Some("osr") | Some("oreproj")) {
+        return Err("Only .osr replays and .oreproj projects can be opened.".into());
+    }
+    let size = std::fs::metadata(&path).map_err(|error| error.to_string())?.len();
+    if size > 512 * 1024 * 1024 {
+        return Err("The file is too large.".into());
+    }
+    std::fs::read(&path)
+        .map(tauri::ipc::Response::new)
+        .map_err(|error| error.to_string())
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateDiagnosis {
@@ -190,7 +214,12 @@ pub fn run() {
             monitor_sidecar(app.handle().clone());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![sidecar_connection, stop_sidecar_for_update, diagnose_update])
+        .invoke_handler(tauri::generate_handler![
+            sidecar_connection,
+            stop_sidecar_for_update,
+            diagnose_update,
+            read_user_file
+        ])
         .build(tauri::generate_context!())
         .expect("Failed to build Tauri application");
 

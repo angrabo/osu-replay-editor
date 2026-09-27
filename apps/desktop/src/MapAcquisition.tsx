@@ -2,6 +2,8 @@ import { CheckCircle2, FileUp, FolderOpen, MapPinned, UserRound } from 'lucide-r
 import { useEffect, useRef, useState } from 'react';
 import { sidecarRequest } from './sidecar';
 import { useEditorStore, type ImportedReplay, type MapInfo } from './stores/editor';
+import { fileName, isDesktop, readUserFile, recordRecentFile } from './recentFiles';
+import { Spinner } from './components/common/Loading';
 
 export type Session = {
   authenticated: boolean;
@@ -36,7 +38,7 @@ export type Resolution = {
   assets: string[];
 };
 
-export type AcquisitionAction = 'open' | 'select-replays' | 'select-map' | 'new-map';
+export type AcquisitionAction = 'open' | 'select-replays' | 'select-map' | 'new-map' | 'recent-replays';
 
 export function toMapInfo(resolution: Resolution | null): MapInfo | undefined {
   return resolution
@@ -56,6 +58,8 @@ type Props = {
   currentResolution: Resolution | null;
   session: Session | null;
   initialAction?: AcquisitionAction;
+  // Replay paths to open straight away (File > Open recent).
+  initialReplayPaths?: string[];
 };
 
 export function MapAcquisition({
@@ -65,6 +69,7 @@ export function MapAcquisition({
   currentResolution,
   session,
   initialAction = 'open',
+  initialReplayPaths,
 }: Props) {
   const currentReplay = useEditorStore.getState().tracks[0]?.replay;
   const [header, setHeader] = useState<Header | null>(() =>
@@ -87,6 +92,17 @@ export function MapAcquisition({
   const beatmapInput = useRef<HTMLInputElement>(null);
   const initialActionHandled = useRef(false);
   const previousAuthenticated = useRef(session?.authenticated ?? false);
+  // File > Open recent loads in the background and only shows this dialog when something needs
+  // the user (map download, sign-in, an error); on success it closes itself.
+  const quietRef = useRef(initialAction === 'recent-replays');
+  const [quiet, setQuiet] = useState(quietRef.current);
+  const reveal = () => {
+    quietRef.current = false;
+    setQuiet(false);
+  };
+  const finishQuietly = () => {
+    if (quietRef.current) onClose();
+  };
 
   function applyResolution(value: Resolution, imported = pending, replacing = pendingReplacement) {
     setResolution(value);
@@ -101,8 +117,10 @@ export function MapAcquisition({
       setPending([]);
       setPendingReplacement(false);
       onResolutionChange(value);
-    } else if (!replacing) {
-      onResolutionChange(null);
+      finishQuietly();
+    } else {
+      reveal();
+      if (!replacing) onResolutionChange(null);
     }
   }
 
@@ -117,6 +135,7 @@ export function MapAcquisition({
       if (value.status === 'verified')
         setMessage(value.source === 'cache' ? 'Using the cached beatmap.' : 'Beatmap downloaded and ready.');
     } catch (error) {
+      reveal();
       if (!replacing) onResolutionChange(null);
       useEditorStore.getState().setMapLoadStatus(hash, 'error');
       setMessage((error as Error).message);
@@ -137,6 +156,7 @@ export function MapAcquisition({
     if (!replacing && resolution?.status === 'verified' && resolution.replayHash === hash) {
       imported.forEach((item) => useEditorStore.getState().importReplay(item));
       setMessage(`${imported.length} replay${imported.length === 1 ? '' : 's'} imported.`);
+      finishQuietly();
       return;
     }
 
@@ -145,7 +165,41 @@ export function MapAcquisition({
     await resolve(hash, imported, replacing);
   }
 
-  async function readReplay(files?: FileList | null) {
+  // Desktop: pick replays with the native dialog so their paths can be remembered for
+  // File > Open recent. The browser preview falls back to the file input.
+  async function pickReplays() {
+    if (!(await isDesktop())) {
+      replayInput.current?.click();
+      return;
+    }
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const picked = await open({ multiple: true, filters: [{ name: 'osu! replay', extensions: ['osr'] }] });
+      const paths = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
+      if (paths.length) await readReplayPaths(paths);
+    } catch (error) {
+      setMessage((error as Error).message);
+    }
+  }
+
+  async function readReplayPaths(paths: string[]) {
+    setBusy(true);
+    setActivity('Reading replay data…');
+    setMessage('');
+    let files: File[];
+    try {
+      files = await Promise.all(paths.map(async (path) => new File([await readUserFile(path)], fileName(path))));
+    } catch (error) {
+      reveal();
+      setMessage(`Could not read the replay:${String((error as Error).message ?? error)}`);
+      setActivity(null);
+      setBusy(false);
+      return;
+    }
+    await readReplay(files, paths);
+  }
+
+  async function readReplay(files?: FileList | File[] | null, paths?: string[]) {
     if (!files?.length) return;
     setBusy(true);
     setActivity('Reading replay data…');
@@ -168,8 +222,10 @@ export function MapAcquisition({
         throw new Error('Selected replays use different beatmap difficulties. Import matching files together.');
 
       const existingHash = useEditorStore.getState().tracks[0]?.replay.metadata.beatmapHash;
+      if (paths?.length) recordRecentFile('replays', paths);
       await finishReplayImport(imported, !!existingHash && existingHash !== hash);
     } catch (error) {
+      reveal();
       setMessage((error as Error).message);
     } finally {
       setActivity(null);
@@ -216,10 +272,14 @@ export function MapAcquisition({
 
   useEffect(() => {
     if (initialActionHandled.current) return;
-    initialActionHandled.current = true;
-    if (initialAction === 'new-map') newMap();
+    // Mark it handled only when the action actually runs: StrictMode mounts effects twice and the
+    // first cleanup cancels this timer, so a flag set earlier would skip the action entirely.
     const timer = window.setTimeout(() => {
-      if (initialAction === 'select-replays') replayInput.current?.click();
+      if (initialActionHandled.current) return;
+      initialActionHandled.current = true;
+      if (initialAction === 'new-map') newMap();
+      if (initialAction === 'select-replays') void pickReplays();
+      if (initialAction === 'recent-replays' && initialReplayPaths?.length) void readReplayPaths(initialReplayPaths);
       if (initialAction === 'select-map') beatmapInput.current?.click();
       if (initialAction === 'open' && header && !currentResolution) void resolve(header.beatmapHash);
     });
@@ -235,6 +295,14 @@ export function MapAcquisition({
 
   const needsMap = header && resolution?.status !== 'verified';
   const canDownload = session?.authenticated === true;
+
+  if (quiet)
+    return (
+      <div className="recent-open-toast" role="status" aria-live="polite">
+        <Spinner size={11} />
+        <span>{activity ?? 'Opening replay…'}</span>
+      </div>
+    );
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -272,7 +340,7 @@ export function MapAcquisition({
         />
 
         <div className="map-flow-actions">
-          <button className="map-flow-primary" disabled={busy} onClick={() => replayInput.current?.click()}>
+          <button className="map-flow-primary" disabled={busy} onClick={() => void pickReplays()}>
             <FileUp size={18} />
             <span>
               <strong>Select replay files</strong>

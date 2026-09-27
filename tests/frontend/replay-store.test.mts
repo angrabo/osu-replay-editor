@@ -523,7 +523,7 @@ describe('persisted preferences', () => {
       useEditorStore.getState().setGameplayFilter(filter, true);
     useEditorStore.getState().setPlayfieldZoom(1.7);
     useEditorStore.getState().setCursorTrailMs(650);
-    assert.deepEqual(readPlayfieldPreferences(), { showBackground: false, backgroundDim: 35, cursorSize: 100, showGrid: false, compactMode: true, wireframeGameplay: true, fadeAfterClick: true, showHitJudgements: true, showHiddenFade: true, showSliderEndWindows: false, playfieldZoom: 1.7, cursorTrailMs: 650 });
+    assert.deepEqual(readPlayfieldPreferences(), { showBackground: false, backgroundDim: 35, cursorSize: 100, showGrid: false, compactMode: true, wireframeGameplay: true, fadeAfterClick: true, showHitJudgements: true, showHiddenFade: true, showSliderEndWindows: false, showSliderTracking: true, playfieldZoom: 1.7, cursorTrailMs: 650 });
 
     useEditorStore.getState().setShowBackground(true);
     useEditorStore.getState().setBackgroundDim(120);
@@ -533,7 +533,7 @@ describe('persisted preferences', () => {
       useEditorStore.getState().setGameplayFilter(filter, false);
     useEditorStore.getState().setPlayfieldZoom(1);
     useEditorStore.getState().setCursorTrailMs(220);
-    assert.deepEqual(readPlayfieldPreferences(), { showBackground: true, backgroundDim: 100, cursorSize: 100, showGrid: true, compactMode: false, wireframeGameplay: false, fadeAfterClick: false, showHitJudgements: false, showHiddenFade: false, showSliderEndWindows: false, playfieldZoom: 1, cursorTrailMs: 220 });
+    assert.deepEqual(readPlayfieldPreferences(), { showBackground: true, backgroundDim: 100, cursorSize: 100, showGrid: true, compactMode: false, wireframeGameplay: false, fadeAfterClick: false, showHitJudgements: false, showHiddenFade: false, showSliderEndWindows: false, showSliderTracking: true, playfieldZoom: 1, cursorTrailMs: 220 });
   });
 
   test('timeline wheel mode/step is persisted to localStorage', () => {

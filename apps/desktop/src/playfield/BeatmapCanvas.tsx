@@ -6,6 +6,7 @@ import {
   parseOsu,
   PixiBeatmapViewer,
   replayPointAt,
+  sliderBreaks,
   type BeatmapViewerAdapter,
   type ParsedBeatmap,
   type PlayfieldTransform,
@@ -14,6 +15,7 @@ import { Minus, Plus, RotateCcw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Resolution } from '../MapAcquisition';
 import { sidecarBlobRequest } from '../sidecar';
+import { releaseExportViewer, setExportViewer } from './exportTarget';
 import {
   adjacentReplayFrameTime,
   hitWindowsForOd,
@@ -117,6 +119,7 @@ export function BeatmapCanvas({
   const showHitJudgements = useEditorStore((state) => state.showHitJudgements);
   const showHiddenFade = useEditorStore((state) => state.showHiddenFade);
   const showSliderEndWindows = useEditorStore((state) => state.showSliderEndWindows);
+  const showSliderTracking = useEditorStore((state) => state.showSliderTracking);
   // Zoom is per-pane (local state), not the shared store value — otherwise the two split-view
   // panes would fight over one zoom level. Seeded once from the saved preference at mount.
   const [playfieldZoom, setPlayfieldZoomRaw] = useState(() => useEditorStore.getState().playfieldZoom);
@@ -128,6 +131,9 @@ export function BeatmapCanvas({
   const showCursorPast = useEditorStore((state) => state.showCursorPast);
   const showCursorFuture = useEditorStore((state) => state.showCursorFuture);
   const showInputPaths = useEditorStore((state) => state.showInputPaths);
+  const showCursorSpeed = useEditorStore((state) => state.showCursorSpeed);
+  const showFrameMarkers = useEditorStore((state) => state.showFrameMarkers);
+  const cursorLayerOrder = useEditorStore((state) => state.cursorLayerOrder);
   const showClickMarkers = useEditorStore((state) => state.showClickMarkers);
   const drawRangeSnap = useEditorStore((state) => state.drawRangeSnap);
   const wheelMode = useEditorStore((state) => state.timelineWheelMode);
@@ -256,6 +262,7 @@ export function BeatmapCanvas({
         return;
       }
       viewerRef.current = viewer;
+      if (clock) setExportViewer(viewer);
       viewer.setMods(0);
       panRef.current = { x: 0, y: 0 };
       setPan({ x: 0, y: 0 });
@@ -271,6 +278,9 @@ export function BeatmapCanvas({
         showCursorPast: settings.showCursorPast,
         showCursorFuture: settings.showCursorFuture,
         showInputPaths: settings.showInputPaths,
+        showCursorSpeed: settings.showCursorSpeed,
+        showFrameMarkers: settings.showFrameMarkers,
+        cursorLayerOrder: settings.cursorLayerOrder,
         showClickMarkers: settings.showClickMarkers,
         showBackground: settings.showBackground,
         backgroundDim: settings.backgroundDim,
@@ -282,6 +292,7 @@ export function BeatmapCanvas({
         showHitJudgements: settings.showHitJudgements,
         showHiddenFade: settings.showHiddenFade,
         showSliderEndWindows: settings.showSliderEndWindows,
+        showSliderTracking: settings.showSliderTracking,
         zoom: playfieldZoom,
         cursorTrailMs: settings.cursorTrailMs,
         highlightedObjectIndex: settings.selectedBeatmapObjectIndex,
@@ -298,6 +309,7 @@ export function BeatmapCanvas({
     });
     return () => {
       cancelled = true;
+      releaseExportViewer(viewerRef.current);
       viewerRef.current?.destroy();
       viewerRef.current = null;
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
@@ -348,6 +360,22 @@ export function BeatmapCanvas({
     if (!clock) return;
     useEditorStore.getState().setHitWindows(previewBeatmap ? hitWindowsForOd(previewBeatmap.overallDifficulty) : null);
   }, [previewBeatmap, clock]);
+  const replayClient = previewTrack && previewTrack.exportMetadata.version >= 30000000 ? 'lazer' : 'stable';
+  const judgedHeadHits = useMemo(() => {
+    // Only a whole-replay simulation of this exact replay says when each slider head was hit.
+    if (!simulation || simulation.scope !== 'whole-replay' || (original && previewTrack?.edited)) return undefined;
+    return new Map(simulation.judgements.map((judgement) => [judgement.objectIndex, judgement.hitTime]));
+  }, [simulation, original, previewTrack?.edited]);
+  const breaks = useMemo(
+    () =>
+      previewBeatmap && displayedReplay
+        ? sliderBreaks(previewBeatmap, displayedReplay.frames, replayClient, judgedHeadHits)
+        : [],
+    [previewBeatmap, displayedReplay, replayClient, judgedHeadHits],
+  );
+  useEffect(() => {
+    if (clock) useEditorStore.getState().setSliderBreaks(breaks);
+  }, [breaks, clock]);
   // Hit object under a playfield point that is visible at the playhead; earlier objects are drawn
   // on top, so they win when several overlap.
   const hitObjectAt = (point: { x: number; y: number }): number | null => {
@@ -385,6 +413,9 @@ export function BeatmapCanvas({
         showCursorPast,
         showCursorFuture,
         showInputPaths,
+        showCursorSpeed,
+        showFrameMarkers,
+        cursorLayerOrder,
         showClickMarkers,
         showBackground,
         backgroundDim,
@@ -396,6 +427,7 @@ export function BeatmapCanvas({
         showHitJudgements,
         showHiddenFade,
         showSliderEndWindows,
+        showSliderTracking,
         zoom: playfieldZoom,
         cursorTrailMs,
         highlightedObjectIndex: selectedBeatmapObjectIndex,
@@ -412,11 +444,15 @@ export function BeatmapCanvas({
     showHitJudgements,
     showHiddenFade,
     showSliderEndWindows,
+    showSliderTracking,
     playfieldZoom,
     cursorTrailMs,
     showCursorPast,
     showCursorFuture,
     showInputPaths,
+    showCursorSpeed,
+    showFrameMarkers,
+    cursorLayerOrder,
     showClickMarkers,
     ready,
   ]);

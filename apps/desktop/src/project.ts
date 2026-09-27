@@ -1,4 +1,4 @@
-import type { EditorState, ImportedReplay, MapInfo, Track } from './stores/editor';
+import type { EditorState, ImportedReplay, MapInfo, TimelineMarker, Track } from './stores/editor';
 import type { Resolution } from './MapAcquisition';
 
 export const PROJECT_FILE_EXTENSION = 'oreproj';
@@ -22,11 +22,15 @@ export type ProjectView = Pick<
   | 'showHitJudgements'
   | 'showHiddenFade'
   | 'showSliderEndWindows'
+  | 'showSliderTracking'
   | 'playfieldZoom'
   | 'cursorTrailMs'
   | 'showCursorPast'
   | 'showCursorFuture'
   | 'showInputPaths'
+  | 'showCursorSpeed'
+  | 'showFrameMarkers'
+  | 'cursorLayerOrder'
   | 'showClickMarkers'
   | 'cursorSmoothing'
   | 'drawRangeSnap'
@@ -50,6 +54,7 @@ export type ProjectFile = {
   archivedTracks?: SerializedTrack[];
   archivedMapInfo?: Record<string, MapInfo>;
   view: ProjectView;
+  markers?: TimelineMarker[];
 };
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -81,6 +86,7 @@ export function serializeProject(
   resolution: Resolution | null,
   archivedTracks: Track[] = [],
   archivedMapInfo: Record<string, MapInfo> = {},
+  markers: TimelineMarker[] = [],
 ): ProjectFile {
   const beatmapHash = resolution?.replayHash ?? tracks[0]?.replay.metadata.beatmapHash ?? '';
   const serializeTrack = (track: Track): SerializedTrack => ({
@@ -97,6 +103,7 @@ export function serializeProject(
     archivedTracks: archivedTracks.map(serializeTrack),
     archivedMapInfo,
     view,
+    markers,
   };
 }
 
@@ -110,6 +117,7 @@ export function parseProjectFile(raw: string): {
   archivedTracks: Track[];
   archivedMapInfo: Record<string, MapInfo>;
   view: ProjectView;
+  markers: TimelineMarker[];
   beatmapHash: string;
 } {
   let parsed: ProjectFile;
@@ -133,6 +141,9 @@ export function parseProjectFile(raw: string): {
     archivedTracks,
     archivedMapInfo: parsed.archivedMapInfo ?? {},
     view: parsed.view,
+    markers: Array.isArray(parsed.markers)
+      ? parsed.markers.filter((marker) => marker && typeof marker.id === 'string' && Number.isFinite(marker.timeMs))
+      : [],
     beatmapHash: parsed.beatmapHash,
   };
 }

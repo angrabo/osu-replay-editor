@@ -26,6 +26,8 @@ import { useTimelineCanvas, lanes, rulerHeight, rulerStepsMs, numericColor } fro
 import { useInputDrag } from './useInputDrag';
 import { useLaneResize } from './useLaneResize';
 import { HitObjectTooltip } from './HitObjectHover';
+import { TimelineMarkers } from './TimelineMarkers';
+import { actionForEvent } from '../keybindings';
 import type { Resolution } from '../MapAcquisition';
 import { PanelCloseButton } from '../components/common/PanelCloseButton';
 import { PanelPopOutButton } from '../components/common/FloatingPanel';
@@ -66,6 +68,8 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
   const [bladePreview, setBladePreview] = useState<{ timeMs: number; lane: number } | null>(null);
   const [objectHover, setObjectHover] = useState<{ x: number; y: number; index: number } | null>(null);
   const hitWindows = useEditorStore((state) => state.hitWindows);
+  const sliderBreaks = useEditorStore((state) => state.sliderBreaks);
+  const showCursorSpeed = useEditorStore((state) => state.showCursorSpeed);
   const previewTrackId = useEditorStore((state) => state.previewTrackId);
   const [contextMenu, setContextMenu] = useState<TimelineContextMenuState | null>(null);
   const tracks = useEditorStore((state) => state.tracks);
@@ -176,6 +180,8 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
     selected,
     layoutMode,
     simulation,
+    sliderBreaks,
+    showCursorSpeed,
     xForTime,
     laneTop,
   });
@@ -368,27 +374,19 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
   useEffect(() => {
     const switchTool = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (
-        event.ctrlKey ||
-        event.metaKey ||
-        event.altKey ||
-        target?.matches('input, textarea, select, [contenteditable="true"]')
-      )
-        return;
+      if (target?.matches?.('input, textarea, select, [contenteditable="true"]')) return;
       if (editorSurface !== 'timeline') return;
-      if (event.key.toLowerCase() === 'v') {
+      const action = actionForEvent(event, ['timeline']);
+      if (action === 'timeline-select') {
         event.preventDefault();
         setTimelineTool('select');
-      }
-      if (event.key.toLowerCase() === 'h') {
+      } else if (action === 'timeline-hand') {
         event.preventDefault();
         setTimelineTool('hand');
-      }
-      if (event.key.toLowerCase() === 'b') {
+      } else if (action === 'timeline-blade') {
         event.preventDefault();
         setTimelineTool('cut');
-      }
-      if (event.key.toLowerCase() === 's' && event.shiftKey) {
+      } else if (action === 'timeline-cycle-snap') {
         event.preventDefault();
         const current = useEditorStore.getState().snap;
         setSnap(
@@ -400,7 +398,7 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
                 ? 'all'
                 : 'off',
         );
-      } else if (event.key.toLowerCase() === 's') {
+      } else if (action === 'timeline-cut-at-playhead') {
         const chosen = useEditorStore.getState().selectedInput;
         if (chosen && playhead > chosen.startTime && playhead < chosen.endTime) {
           event.preventDefault();
@@ -879,6 +877,12 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
               </span>
             </div>
           )}
+          <TimelineMarkers
+            xForTime={xForTime}
+            pixelsPerSecond={pixelsPerSecond}
+            width={width}
+            height={contentHeight - 30}
+          />
           <div className="timeline-playhead" style={{ left: xForTime(playhead) }}>
             <span />
           </div>
@@ -925,6 +929,7 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
               object={beatmapObjects[objectHover.index]}
               index={objectHover.index}
               judgement={judgementFor(objectHover.index)}
+              sliderBreak={sliderBreaks.find((item) => item.objectIndex === objectHover.index) ?? null}
               windows={hitWindows}
               x={objectHover.x}
               y={objectHover.y}
@@ -939,6 +944,10 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
               canPaste={!!inputClipboard}
               onPasteAtTime={(timeMs) => pasteInputs(false, timeMs)}
               onPasteInPlace={() => pasteInputs(true)}
+              onAddMarker={(timeMs) => {
+                const state = useEditorStore.getState();
+                state.setEditingMarker(state.addMarker(timeMs));
+              }}
               inputKeys={inputKeyNames}
               onAddInput={(key, timeMs) => {
                 const track =

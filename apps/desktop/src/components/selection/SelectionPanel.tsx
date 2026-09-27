@@ -1,3 +1,4 @@
+import { shortcutLabel } from '../../keybindings';
 import { Copy, Plus, Scissors, Sparkles, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { formatTime, type InputKey, useEditorStore } from '../../stores/editor';
@@ -265,16 +266,16 @@ export function SelectionPanel() {
             </div>
             <div className="shortcut-list">
               <span>
-                <kbd>Ctrl C</kbd> Copy
+                <kbd>{shortcutLabel('copy') || '—'}</kbd> Copy
               </span>
               <span>
-                <kbd>Ctrl V</kbd> Paste
+                <kbd>{shortcutLabel('paste') || '—'}</kbd> Paste
               </span>
               <span>
-                <kbd>Delete</kbd> Remove
+                <kbd>{shortcutLabel('delete') || '—'}</kbd> Remove
               </span>
               <span>
-                <kbd>B</kbd> Blade tool
+                <kbd>{shortcutLabel('timeline-blade') || '—'}</kbd> Blade tool
               </span>
             </div>
           </div>

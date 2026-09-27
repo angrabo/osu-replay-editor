@@ -1,6 +1,16 @@
 import { useEffect } from 'react';
-import { adjacentReplayFrameTime, useEditorStore } from '../stores/editor';
+import { adjacentReplayFrameTime, useEditorStore, type Tool } from '../stores/editor';
 import type { AcquisitionAction } from '../MapAcquisition';
+import { jumpTo } from '../navigation';
+import { actionForEvent, type KeyScope } from '../keybindings';
+
+const playfieldTools: Partial<Record<string, Tool>> = {
+  'tool-select': 'select',
+  'tool-hand': 'hand',
+  'tool-draw': 'draw',
+  'tool-brush': 'brush',
+  'tool-zoom': 'zoom',
+};
 
 export function useKeyboardShortcuts({
   openAcquisition,
@@ -18,82 +28,125 @@ export function useKeyboardShortcuts({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
-      if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') {
+      if (target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      const scopes: KeyScope[] =
+        useEditorStore.getState().editorSurface === 'gameplay' ? ['global', 'playfield'] : ['global'];
+      const action = actionForEvent(event, scopes);
+      if (!action) return;
+      const state = useEditorStore.getState();
+      const tool = playfieldTools[action];
+      if (tool) {
         event.preventDefault();
-        openAcquisition('select-replays');
-      } else if ((event.ctrlKey || event.metaKey) && event.key === ',') {
-        event.preventDefault();
-        setSettingsOpen(true);
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
-        event.preventDefault();
-        useEditorStore.getState().copySelectedInputs();
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
-        event.preventDefault();
-        useEditorStore.getState().pasteInputs(false);
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
-        event.preventDefault();
-        useEditorStore.getState().duplicateSelectedInputs();
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
-        event.preventDefault();
-        if (event.shiftKey) redo();
-        else undo();
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
-        event.preventDefault();
-        redo();
-      } else if (
-        !event.altKey &&
-        useEditorStore.getState().editorSurface === 'gameplay' &&
-        event.key.toLowerCase() === 'v'
-      ) {
-        event.preventDefault();
-        useEditorStore.getState().setTool('select');
-      } else if (
-        !event.altKey &&
-        useEditorStore.getState().editorSurface === 'gameplay' &&
-        event.key.toLowerCase() === 'h'
-      ) {
-        event.preventDefault();
-        useEditorStore.getState().setTool('hand');
-      } else if (!event.altKey && event.key.toLowerCase() === 't') {
-        event.preventDefault();
-        const state = useEditorStore.getState();
-        state.setEditorSurface('gameplay');
-        state.setTool('curve');
-      } else if (event.key === 'Escape') {
-        const state = useEditorStore.getState();
-        state.selectInput(null);
-        state.selectCursorFrame(null);
-        state.selectBeatmapObject(null);
-      } else if (event.code === 'Space') {
-        event.preventDefault();
-        setPlaying(!useEditorStore.getState().playing);
-      } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        const state = useEditorStore.getState();
-        const track =
-          state.tracks.find((item) => item.id === state.previewTrackId) ??
-          state.tracks.find((item) => state.selectedTrackIds.includes(item.id)) ??
-          state.tracks[0];
-        const frameTime = track
-          ? adjacentReplayFrameTime(track.replay.frames, state.playheadMs, event.key === 'ArrowRight' ? 1 : -1)
-          : null;
-        if (frameTime !== null) {
+        state.setTool(tool);
+        return;
+      }
+      switch (action) {
+        case 'open-replays':
           event.preventDefault();
-          state.setPlaying(false);
-          state.setPlayhead(frameTime);
+          openAcquisition('select-replays');
+          break;
+        case 'open-settings':
+          event.preventDefault();
+          setSettingsOpen(true);
+          break;
+        case 'copy':
+          event.preventDefault();
+          state.copySelectedInputs();
+          break;
+        case 'paste':
+          event.preventDefault();
+          state.pasteInputs(false);
+          break;
+        case 'duplicate':
+          event.preventDefault();
+          state.duplicateSelectedInputs();
+          break;
+        case 'undo':
+          event.preventDefault();
+          undo();
+          break;
+        case 'redo':
+          event.preventDefault();
+          redo();
+          break;
+        case 'next-object':
+        case 'previous-object':
+          event.preventDefault();
+          jumpTo('object', action === 'next-object' ? 1 : -1);
+          break;
+        case 'next-miss':
+        case 'previous-miss':
+          event.preventDefault();
+          jumpTo('miss', action === 'next-miss' ? 1 : -1);
+          break;
+        case 'next-100':
+        case 'previous-100':
+          event.preventDefault();
+          jumpTo('100', action === 'next-100' ? 1 : -1);
+          break;
+        case 'next-50':
+        case 'previous-50':
+          event.preventDefault();
+          jumpTo('50', action === 'next-50' ? 1 : -1);
+          break;
+        case 'next-combo-break':
+        case 'previous-combo-break':
+          event.preventDefault();
+          jumpTo('combo-break', action === 'next-combo-break' ? 1 : -1);
+          break;
+        case 'add-marker':
+          event.preventDefault();
+          state.setEditingMarker(state.addMarker(state.playheadMs));
+          break;
+        case 'next-marker':
+        case 'previous-marker':
+          event.preventDefault();
+          jumpTo('marker', action === 'next-marker' ? 1 : -1);
+          break;
+        case 'tool-move-frames':
+          event.preventDefault();
+          state.setEditorSurface('gameplay');
+          state.setTool('curve');
+          break;
+        case 'deselect':
+          state.setEditingMarker(null);
+          state.selectInput(null);
+          state.selectCursorFrame(null);
+          state.selectBeatmapObject(null);
+          break;
+        case 'play-pause':
+          event.preventDefault();
+          setPlaying(!state.playing);
+          break;
+        case 'previous-frame':
+        case 'next-frame': {
+          const track =
+            state.tracks.find((item) => item.id === state.previewTrackId) ??
+            state.tracks.find((item) => state.selectedTrackIds.includes(item.id)) ??
+            state.tracks[0];
+          const frameTime = track
+            ? adjacentReplayFrameTime(track.replay.frames, state.playheadMs, action === 'next-frame' ? 1 : -1)
+            : null;
+          if (frameTime !== null) {
+            event.preventDefault();
+            state.setPlaying(false);
+            state.setPlayhead(frameTime);
+          }
+          break;
         }
-      } else if (event.key === 'Delete') {
-        const state = useEditorStore.getState();
-        const nodeTool = state.tool === 'curve' || state.tool === 'select';
-        if (nodeTool && state.previewTrackId && state.selectedCursorFrameTimes.length) {
-          event.preventDefault();
-          state.deleteSelectedCursorFrames(state.previewTrackId);
-        } else if (nodeTool && state.previewTrackId && state.selectedCursorFrameMs !== null) {
-          event.preventDefault();
-          state.deleteCursorFrame(state.previewTrackId, state.selectedCursorFrameMs);
-        } else if (state.selectedInputs.length) {
-          event.preventDefault();
-          state.deleteSelectedInput();
+        case 'delete': {
+          const nodeTool = state.tool === 'curve' || state.tool === 'select';
+          if (nodeTool && state.previewTrackId && state.selectedCursorFrameTimes.length) {
+            event.preventDefault();
+            state.deleteSelectedCursorFrames(state.previewTrackId);
+          } else if (nodeTool && state.previewTrackId && state.selectedCursorFrameMs !== null) {
+            event.preventDefault();
+            state.deleteCursorFrame(state.previewTrackId, state.selectedCursorFrameMs);
+          } else if (state.selectedInputs.length) {
+            event.preventDefault();
+            state.deleteSelectedInput();
+          }
+          break;
         }
       }
     };

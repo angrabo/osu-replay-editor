@@ -1,3 +1,5 @@
+import type { CursorLayerId } from '@ore/beatmap-viewer';
+import { shortcutLabel, useKeybindingsVersion, type KeyActionId } from '../../keybindings';
 import { Brush, Eye, Hand, MousePointer2, Pencil, Scan, SlidersHorizontal, Spline, Clock3 } from 'lucide-react';
 import { useEditorStore, type Tool } from '../../stores/editor';
 import { OptionTilesPopover } from './OptionTilesPopover';
@@ -5,7 +7,22 @@ import { SnapWidget } from '../../hooks/useSnapDrag';
 import { optionPreviews } from './optionPreviews';
 import { InfoTip } from '../InfoTip';
 
+const cursorLayerLabels: Record<CursorLayerId, string> = {
+  past: 'Past trail',
+  future: 'Future trail',
+  speed: 'Speed heatmap',
+  'input-paths': 'Input colour paths',
+  'frame-markers': 'Replay frame ×',
+  'click-markers': 'Press/release circles',
+};
+
+const withKey = (label: string, id: KeyActionId) => {
+  const key = shortcutLabel(id);
+  return key ? `${label} (${key})` : label;
+};
+
 export function EditorQuickbar() {
+  useKeybindingsVersion();
   const tool = useEditorStore((state) => state.tool);
   const setTool = useEditorStore((state) => state.setTool);
   const wheelMode = useEditorStore((state) => state.timelineWheelMode);
@@ -15,6 +32,10 @@ export function EditorQuickbar() {
   const showCursorPast = useEditorStore((state) => state.showCursorPast);
   const showCursorFuture = useEditorStore((state) => state.showCursorFuture);
   const showInputPaths = useEditorStore((state) => state.showInputPaths);
+  const showCursorSpeed = useEditorStore((state) => state.showCursorSpeed);
+  const showFrameMarkers = useEditorStore((state) => state.showFrameMarkers);
+  const cursorLayerOrder = useEditorStore((state) => state.cursorLayerOrder);
+  const setCursorLayerOrder = useEditorStore((state) => state.setCursorLayerOrder);
   const showClickMarkers = useEditorStore((state) => state.showClickMarkers);
   const setCursorDisplay = useEditorStore((state) => state.setCursorDisplay);
   const wireframeGameplay = useEditorStore((state) => state.wireframeGameplay);
@@ -22,6 +43,7 @@ export function EditorQuickbar() {
   const showHitJudgements = useEditorStore((state) => state.showHitJudgements);
   const showHiddenFade = useEditorStore((state) => state.showHiddenFade);
   const showSliderEndWindows = useEditorStore((state) => state.showSliderEndWindows);
+  const showSliderTracking = useEditorStore((state) => state.showSliderTracking);
   const setGameplayFilter = useEditorStore((state) => state.setGameplayFilter);
   const cursorSmoothing = useEditorStore((state) => state.cursorSmoothing);
   const setCursorSmoothing = useEditorStore((state) => state.setCursorSmoothing);
@@ -34,12 +56,20 @@ export function EditorQuickbar() {
   const magneticMove = useEditorStore((state) => state.magneticMove);
   const setMagneticMove = useEditorStore((state) => state.setMagneticMove);
   const tools: { id: Tool; icon: React.ReactNode; label: string }[] = [
-    { id: 'select', icon: <MousePointer2 size={16} />, label: 'Select cursor frames, Ctrl+click adds (V)' },
-    { id: 'hand', icon: <Hand size={16} />, label: 'Pan playfield (H)' },
-    { id: 'draw', icon: <Pencil size={16} />, label: 'Draw cursor path in selected time range' },
-    { id: 'curve', icon: <Spline size={16} />, label: 'Move cursor frames (T)' },
-    { id: 'brush', icon: <Brush size={16} />, label: 'Warp nearby cursor points, strongest at the center' },
-    { id: 'zoom', icon: <Scan size={16} />, label: 'Zoom playfield' },
+    {
+      id: 'select',
+      icon: <MousePointer2 size={16} />,
+      label: withKey('Select cursor frames, Ctrl+click adds', 'tool-select'),
+    },
+    { id: 'hand', icon: <Hand size={16} />, label: withKey('Pan playfield', 'tool-hand') },
+    { id: 'draw', icon: <Pencil size={16} />, label: withKey('Draw cursor path in selected time range', 'tool-draw') },
+    { id: 'curve', icon: <Spline size={16} />, label: withKey('Move cursor frames', 'tool-move-frames') },
+    {
+      id: 'brush',
+      icon: <Brush size={16} />,
+      label: withKey('Warp nearby cursor points, strongest at the center', 'tool-brush'),
+    },
+    { id: 'zoom', icon: <Scan size={16} />, label: withKey('Zoom playfield', 'tool-zoom') },
   ];
   return (
     <SnapWidget
@@ -181,7 +211,9 @@ export function EditorQuickbar() {
             ['past', 'Gray past trail', showCursorPast, optionPreviews.pastTrail],
             ['future', 'White future trail', showCursorFuture, optionPreviews.futureTrail],
             ['input-paths', 'Input colour paths', showInputPaths, optionPreviews.inputPaths],
+            ['speed', 'Speed heatmap', showCursorSpeed, optionPreviews.speedHeatmap],
             ['click-markers', 'Press/release circles', showClickMarkers, optionPreviews.clickMarkers],
+            ['frame-markers', 'Replay frame ×', showFrameMarkers, optionPreviews.frameMarkers],
           ] as const
         ).map(([option, label, checked, preview]) => ({
           id: option,
@@ -190,6 +222,10 @@ export function EditorQuickbar() {
           preview,
           onToggle: (next) => setCursorDisplay(option, next),
         }))}
+        order={{
+          items: cursorLayerOrder.map((id) => ({ id, label: cursorLayerLabels[id] })),
+          onChange: (ids) => setCursorLayerOrder(ids as CursorLayerId[]),
+        }}
       />
       <OptionTilesPopover
         icon={<SlidersHorizontal size={16} />}
@@ -205,6 +241,7 @@ export function EditorQuickbar() {
             ['showHitJudgements', 'Show 100, 50 and misses', showHitJudgements, optionPreviews.judgements],
             ['showHiddenFade', 'Show Hidden fade', showHiddenFade, optionPreviews.hiddenFade],
             ['showSliderEndWindows', 'Show slider end windows', showSliderEndWindows, optionPreviews.sliderEnds],
+            ['showSliderTracking', 'Show slider breaks', showSliderTracking, optionPreviews.sliderTracking],
           ] as const
         ).map(([filter, label, checked, preview]) => ({
           id: filter,

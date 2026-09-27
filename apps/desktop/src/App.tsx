@@ -28,6 +28,8 @@ import {
   PROJECT_FILE_EXTENSION,
   type ProjectView,
 } from './project';
+import { ExportClipDialog } from './export/ExportClipDialog';
+import { forgetRecentFile, readUserFile, recordRecentFile, type RecentFile } from './recentFiles';
 
 const PROJECT_VIEW_KEYS: (keyof ProjectView)[] = [
   'playbackRate',
@@ -42,11 +44,15 @@ const PROJECT_VIEW_KEYS: (keyof ProjectView)[] = [
   'showHitJudgements',
   'showHiddenFade',
   'showSliderEndWindows',
+  'showSliderTracking',
   'playfieldZoom',
   'cursorTrailMs',
   'showCursorPast',
   'showCursorFuture',
   'showInputPaths',
+  'showCursorSpeed',
+  'showFrameMarkers',
+  'cursorLayerOrder',
   'showClickMarkers',
   'cursorSmoothing',
   'drawRangeSnap',
@@ -83,6 +89,8 @@ export default function App() {
   const [account, setAccount] = useState<Session | null>(null);
   const [acquisitionOpen, setAcquisitionOpen] = useState(false);
   const [acquisitionAction, setAcquisitionAction] = useState<AcquisitionAction>('open');
+  const [recentReplayPaths, setRecentReplayPaths] = useState<string[]>([]);
+  const [exportOpen, setExportOpen] = useState(false);
   const [resolution, setResolution] = useState<Resolution | null>(() =>
     import.meta.env.DEV && new URLSearchParams(window.location.search).has('viewer-fixture')
       ? {
@@ -198,6 +206,7 @@ export default function App() {
       resolution,
       state.archivedTracks,
       state.archivedMapInfo,
+      state.markers,
     );
     const json = JSON.stringify(project);
     const suggestedName = projectFileName(project);
@@ -214,6 +223,7 @@ export default function App() {
         });
         if (!path) return;
         await writeTextFile(path, json);
+        recordRecentFile('project', [path]);
       })
       .catch(() => {
         const blob = new Blob([json], { type: 'application/json' });
@@ -226,9 +236,9 @@ export default function App() {
       });
   };
   const loadProjectText = (text: string) => {
-    const { tracks, archivedTracks, archivedMapInfo, view, beatmapHash } = parseProjectFile(text);
+    const { tracks, archivedTracks, archivedMapInfo, view, markers, beatmapHash } = parseProjectFile(text);
     useEditorStore.getState().loadProjectTracks(tracks, archivedTracks, archivedMapInfo);
-    useEditorStore.setState(view);
+    useEditorStore.setState({ ...view, markers, editingMarkerId: null });
     if (beatmapHash)
       void sidecarRequest<Resolution>(`/api/beatmaps/resolve/${beatmapHash}`)
         .then((next) => setResolution(next))
@@ -248,6 +258,7 @@ export default function App() {
         });
         if (!path || Array.isArray(path)) return;
         loadProjectText(await readTextFile(path));
+        recordRecentFile('project', [path]);
       })
       .catch((error) => {
         if ((error as Error).message === 'not-tauri') {
@@ -255,6 +266,24 @@ export default function App() {
           return;
         }
         useEditorStore.setState({ lastEditMessage: `Could not open project: ${(error as Error).message}` });
+      });
+  };
+  const handleOpenRecent = (entry: RecentFile) => {
+    if (entry.kind === 'replays') {
+      setRecentReplayPaths(entry.paths);
+      openAcquisition('recent-replays');
+      return;
+    }
+    void readUserFile(entry.paths[0])
+      .then((buffer) => {
+        loadProjectText(new TextDecoder().decode(buffer));
+        recordRecentFile('project', entry.paths);
+      })
+      .catch((error) => {
+        forgetRecentFile(entry);
+        useEditorStore.setState({
+          lastEditMessage: `Could not open ${entry.label}: ${String((error as Error)?.message ?? error)}`,
+        });
       });
   };
   const handleProjectFileSelected = (file?: File) => {
@@ -296,6 +325,8 @@ export default function App() {
           setChangelogOpen={setChangelogOpen}
           onSaveProject={handleSaveProject}
           onOpenProject={handleOpenProject}
+          onOpenRecent={handleOpenRecent}
+          onExportClip={() => setExportOpen(true)}
         />
         <div className="header-actions">
           <button className="account-button" title="User profile" onClick={() => setAccountOpen(true)}>
@@ -445,10 +476,12 @@ export default function App() {
             : 'No verified beatmap loaded · open File to begin'}
         </span>
       </footer>
+      {exportOpen && <ExportClipDialog onClose={() => setExportOpen(false)} />}
       {acquisitionOpen && (
         <MapAcquisition
           currentResolution={resolution}
           initialAction={acquisitionAction}
+          initialReplayPaths={recentReplayPaths}
           session={account}
           onClose={() => setAcquisitionOpen(false)}
           onOpenAccount={() => setAccountOpen(true)}
