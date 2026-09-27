@@ -1,0 +1,11 @@
+{
+  "notes": "See the release notes on GitHub.",
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://github.com/angrabo/osu-replay-editor/releases/download/v0.2.0/osu.Replay.Editor_0.2.0_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRYUdsam1xRnQ4SllidXhMaFV5RW8raUswSW5FYTkxTDFqWnozZTQ5QXZSVUJGZnBlZVFnRG1veHNPV0xDMEo4WUh0a0U4VjQvZmx4MHl1MkdtSmdRbTQzb2UrTDlaUlEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMzQ3NzU5CWZpbGU6b3N1ISBSZXBsYXkgRWRpdG9yXzAuMi4wX3g2NC1zZXR1cC5leGUKVEdHTWdxYVdXMlEvZ0ZNQTFRVFl4cjNheWs3YVRlZVRVSWswSk9pTjdZL0dwWURlUVUvcUpJcnRjV1RFLzB6UUZKd2JGY3dYR0RlcWl3OUtCeDFGRFE9PQo="
+    }
+  },
+  "pub_date": "2026-09-25T14:49:45Z",
+  "version": "0.2.0"
+}

@@ -105,7 +105,8 @@ public static class SimulationEngine
     }
 
     public static SimulationResult SimulateWhole(string osuText, IReadOnlyList<SimulationFrame> sourceFrames, int mods, int replayVersion = 0,
-        CancellationToken cancellationToken = default, double scoreMultiplier = 1, bool lazerInclusiveLateHitWindows = false)
+        CancellationToken cancellationToken = default, double scoreMultiplier = 1, bool lazerInclusiveLateHitWindows = false,
+        int? failAfterJudgedObjects = null)
     {
         var client = replayVersion >= 30000000 ? "lazer" : "stable";
         var map = BeatmapTextParser.Parse(osuText, mods);
@@ -147,6 +148,27 @@ public static class SimulationEngine
         var stableNotelockUntil = double.NegativeInfinity;
         double lazerAccuracyEarned = 0;
         double lazerAccuracyPossible = 0;
+        var lazerJudgementsMade = 0;
+        var lazerJudgementsTotal = 0;
+        // A failed lazer play (stable never saves those) stops judging at the fail, even though input keeps
+        // being recorded through the fail animation. When the recorded score says how many objects were
+        // judged, the play ends at that judgement: find its time with a full pass, then judge only up to it.
+        var judgedUntil = double.PositiveInfinity;
+        if (isLazer && failAfterJudgedObjects is { } judgedObjects)
+        {
+            var full = SimulateWhole(osuText, sourceFrames, mods, replayVersion, cancellationToken, scoreMultiplier,
+                lazerInclusiveLateHitWindows);
+            var judgementTimes = full.Judgements
+                .Select(judgement => judgement.Kind == "spinner"
+                    ? judgement.EndTime
+                    : judgement.HitTime ?? judgement.StartTime + hitWindow50)
+                .OrderBy(time => time)
+                .ToArray();
+            if (judgedObjects <= 0)
+                judgedUntil = double.NegativeInfinity;
+            else if (judgedObjects <= judgementTimes.Length)
+                judgedUntil = judgementTimes[judgedObjects - 1];
+        }
 
         for (var objectIndex = 0; objectIndex < map.Objects.Length; objectIndex++)
         {
@@ -215,7 +237,7 @@ public static class SimulationEngine
                             : absolute < hitWindow300 ? ("300", 300) : absolute < hitWindow100 ? ("100", 100) : ("50", 50);
                     sliderHeadValue = value;
                     if (item.Kind == "slider")
-                        sliderParts = SliderJudge.Parts(frames, item, rate, map.SliderTickRate, radius * 2.4, true, isLazer);
+                        sliderParts = SliderJudge.Parts(frames, item, rate, map.SliderTickRate, radius * 2.4, true, isLazer, hitTime);
                 }
 
                 if (item.Kind == "slider" && !isLazer)
@@ -236,10 +258,16 @@ public static class SimulationEngine
                 sliderEndsTotal += sliderResult.EndsTotalDelta;
             }
 
+            // Circles/slider heads are judged when hit, or as a miss once their hit window closes.
+            var judged = (item.Kind == "spinner" ? end : hitTime ?? start + hitWindow50) <= judgedUntil;
             if (isLazer)
-                RecordLazerObjectEvents(lazerScoreEvents, item, sliderParts, objectIndex, start, value);
+                RecordLazerObjectEvents(lazerScoreEvents, item, sliderParts, objectIndex, start, value, judged, judgedUntil);
 
-            if (value == 0)
+            if (!judged)
+            {
+                // Not reached before the play ended: neither a hit nor a miss.
+            }
+            else if (value == 0)
             {
                 misses++;
                 if (item.Kind != "slider")
@@ -268,9 +296,15 @@ public static class SimulationEngine
             }
 
             if (isLazer)
-                (lazerAccuracyEarned, lazerAccuracyPossible) = AccumulateLazerAccuracy(sliderParts, value, lazerAccuracyEarned, lazerAccuracyPossible);
+            {
+                lazerJudgementsTotal += 1 + Math.Max(0, sliderParts.Length - 1);
+                if (judged)
+                    (lazerAccuracyEarned, lazerAccuracyPossible, lazerJudgementsMade) = AccumulateLazerAccuracy(sliderParts, value,
+                        lazerAccuracyEarned, lazerAccuracyPossible, lazerJudgementsMade, judgedUntil);
+            }
 
-            judgements.Add(new ObjectJudgement(objectIndex, item.Kind, start, end, result, value, hitTime, hitError,
+            if (judged)
+                judgements.Add(new ObjectJudgement(objectIndex, item.Kind, start, end, result, value, hitTime, hitError,
                 double.IsFinite(distance) ? Math.Round(distance, 3) : -1, inside, key, combo, score,
                 sliderParts.Skip(1).Count(part => part.Hit), Math.Max(0, sliderParts.Length - 1)));
         }
@@ -280,10 +314,15 @@ public static class SimulationEngine
             ? (lazerAccuracyPossible == 0 ? 1 : lazerAccuracyEarned / lazerAccuracyPossible)
             : (total == 0 ? 1 : (300d * n300 + 100d * n100 + 50d * n50) / (300d * total));
 
+        var accuracyProgress = double.IsPositiveInfinity(judgedUntil) || lazerJudgementsTotal == 0
+            ? 1
+            : (double)lazerJudgementsMade / lazerJudgementsTotal;
         var model = ApplyScoreModel(isLazer, stableScoreV2, lazerScoreEvents, stableScoreEvents, judgements, map.DifficultyMultiplier,
-            accuracy, bonusScore, scoreMultiplier, out combo, out maxCombo, out score);
+            accuracy, bonusScore, scoreMultiplier, out combo, out maxCombo, out score, accuracyProgress);
 
         var warnings = BuildWarnings(model, map, mods);
+        if (!double.IsPositiveInfinity(judgedUntil))
+            warnings.Add($"Failed play: nothing after {Math.Round(judgedUntil)} ms is judged, but the score is still measured against the whole map.");
         var (geki, katu) = isLazer ? ((int?)null, (int?)null) : ComboCounts.EndCounts(map.Objects, judgements);
         var perfect = misses == 0 && maxCombo == maximumCombo && sliderTicksHit == sliderTicksTotal && sliderEndsHit == sliderEndsTotal;
 
@@ -389,12 +428,12 @@ public static class SimulationEngine
     }
 
     private static void RecordLazerObjectEvents(List<LazerScoreEvent> lazerScoreEvents, MapObject item,
-        (double Time, int Score, bool Hit)[] sliderParts, int objectIndex, double start, int value)
+        (double Time, int Score, bool Hit)[] sliderParts, int objectIndex, double start, int value, bool judged, double judgedUntil)
     {
         // lazer's combo score is accumulated for every scorable judgement in
         // chronological order. The contribution uses the judgement's maximum
         // value (for example a 100 circle still has a maximum value of 300).
-        lazerScoreEvents.Add(new LazerScoreEvent(start, objectIndex * 10_000, 300, value > 0));
+        lazerScoreEvents.Add(new LazerScoreEvent(start, objectIndex * 10_000, 300, value > 0, Judged: judged));
         if (item.Kind != "slider")
             return;
 
@@ -406,40 +445,42 @@ public static class SimulationEngine
             var part = sliderParts[partIndex];
             var isTail = partIndex == sliderParts.Length - 1;
             lazerScoreEvents.Add(new LazerScoreEvent(part.Time, objectIndex * 10_000 + partIndex,
-                isTail ? 150 : 30, part.Hit, BreakOnMiss: !isTail));
+                isTail ? 150 : 30, part.Hit, BreakOnMiss: !isTail, Judged: judged && part.Time <= judgedUntil));
         }
     }
 
-    private static (double Earned, double Possible) AccumulateLazerAccuracy((double Time, int Score, bool Hit)[] sliderParts,
-        int value, double lazerAccuracyEarned, double lazerAccuracyPossible)
+    private static (double Earned, double Possible, int Made) AccumulateLazerAccuracy((double Time, int Score, bool Hit)[] sliderParts,
+        int value, double lazerAccuracyEarned, double lazerAccuracyPossible, int judgementsMade, double judgedUntil)
     {
         lazerAccuracyEarned += value;
         lazerAccuracyPossible += 300;
-
-        if (sliderParts.Length <= 1)
-            return (lazerAccuracyEarned, lazerAccuracyPossible);
+        judgementsMade++;
 
         for (var partIndex = 1; partIndex < sliderParts.Length; partIndex++)
         {
+            if (sliderParts[partIndex].Time > judgedUntil)
+                continue;
             var maximum = partIndex == sliderParts.Length - 1 ? 150 : 30;
             lazerAccuracyPossible += maximum;
+            judgementsMade++;
             if (sliderParts[partIndex].Hit)
                 lazerAccuracyEarned += maximum;
         }
 
-        return (lazerAccuracyEarned, lazerAccuracyPossible);
+        return (lazerAccuracyEarned, lazerAccuracyPossible, judgementsMade);
     }
 
     private static ScoreModel ApplyScoreModel(bool isLazer, bool stableScoreV2, List<LazerScoreEvent> lazerScoreEvents,
         List<StableScoreEvent> stableScoreEvents, List<ObjectJudgement> judgements, int difficultyMultiplier,
-        double accuracy, long bonusScore, double scoreMultiplier, out int combo, out int maxCombo, out long score)
+        double accuracy, long bonusScore, double scoreMultiplier, out int combo, out int maxCombo, out long score,
+        double accuracyProgress = 1)
     {
         var multiplier = Math.Max(0, scoreMultiplier);
 
         if (isLazer)
         {
             var model = new LazerScoreModel();
-            var result = model.Compute(lazerScoreEvents, accuracy, bonusScore, multiplier);
+            var result = model.Compute(lazerScoreEvents, accuracy, bonusScore, multiplier, accuracyProgress);
             combo = result.EndingCombo;
             maxCombo = result.MaximumCombo;
             score = result.Score;

@@ -55,11 +55,8 @@ export function Playfield({
   );
   const pane = (source: PlayfieldSource, side: 'left' | 'right') => {
     const trackId = sourceTrack(source);
-    const simulation = sourceOriginal(source)
-      ? null
-      : trackId && simulations[trackId]?.result?.status !== 'unsupported'
-        ? simulations[trackId]?.result
-        : null;
+    // The original replay isn't simulated; every other replay source always shows the readout.
+    const showSimulation = !!trackId && !sourceOriginal(source);
     const interactive = side === 'left' && source === 'preview';
     return (
       <div className={`playfield-pane playfield-pane-${side}`} key={side}>
@@ -87,7 +84,7 @@ export function Playfield({
           />
           {interactive && <EditorQuickbar />}
           {interactive && toolOptionsVisible && <ToolOptionsBar />}
-          {simulation && simulationVisible && <SimulationOverlay simulation={simulation} />}
+          {showSimulation && simulationVisible && <SimulationOverlay state={simulations[trackId!]} />}
           <SnapWidget id="previewBadge" panel="previewBadge" fallback="bottom-right" className="preview-badge">
             {trackId
               ? `${sourceOriginal(source) ? 'ORIGINAL' : 'REPLAY'} · ${sourceLabel(source)}`

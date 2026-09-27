@@ -56,7 +56,7 @@ export type ImportedReplay = {
   keyEvents: ReplayKeyEvent[];
 };
 
-export type Tool = 'select' | 'hand' | 'draw' | 'curve' | 'split' | 'zoom' | 'brush';
+export type Tool = 'select' | 'hand' | 'draw' | 'curve' | 'zoom' | 'brush';
 export type Snap = 'off' | 'hit-window' | 'hit-object' | 'all' | 'timing-point' | 'replay-frame';
 export type BeatmapTimelineObject = {
   startTime: number;
@@ -65,6 +65,11 @@ export type BeatmapTimelineObject = {
   x: number;
   y: number;
 };
+// Hit windows (± ms around the object time) for the previewed replay's mods.
+export type HitWindows = { great: number; ok: number; meh: number };
+export function hitWindowsForOd(od: number): HitWindows {
+  return { great: 80 - 6 * od, ok: 140 - 8 * od, meh: 200 - 10 * od };
+}
 export type SimulationJudgement = {
   objectIndex: number;
   kind: 'circle' | 'slider' | 'spinner';
@@ -153,12 +158,14 @@ export type EditorState = {
   volume: number;
   showBackground: boolean;
   backgroundDim: number;
+  cursorSize: number;
   showGrid: boolean;
   compactMode: boolean;
   wireframeGameplay: boolean;
   fadeAfterClick: boolean;
   showHitJudgements: boolean;
   showHiddenFade: boolean;
+  showSliderEndWindows: boolean;
   playfieldZoom: number;
   cursorTrailMs: number;
   showCursorPast: boolean;
@@ -221,10 +228,11 @@ export type EditorState = {
   setVolume: (volume: number) => void;
   setShowBackground: (show: boolean) => void;
   setBackgroundDim: (dim: number) => void;
+  setCursorSize: (percent: number) => void;
   setShowGrid: (show: boolean) => void;
   setCompactMode: (enabled: boolean) => void;
   setGameplayFilter: (
-    filter: 'wireframeGameplay' | 'fadeAfterClick' | 'showHitJudgements' | 'showHiddenFade',
+    filter: 'wireframeGameplay' | 'fadeAfterClick' | 'showHitJudgements' | 'showHiddenFade' | 'showSliderEndWindows',
     enabled: boolean,
   ) => void;
   setPlayfieldZoom: (zoom: number) => void;
@@ -234,6 +242,8 @@ export type EditorState = {
   setDrawRangeSnap: (enabled: boolean) => void;
   setEditorSurface: (surface: EditorSurface) => void;
   setBeatmapObjects: (objects: BeatmapTimelineObject[]) => void;
+  hitWindows: HitWindows | null;
+  setHitWindows: (windows: HitWindows | null) => void;
   setSimulationRunning: (trackId: string) => void;
   setSimulationResult: (trackId: string, result: SimulationResult) => void;
   setSimulationError: (trackId: string, error: string) => void;
@@ -308,6 +318,7 @@ const palette = ['#57a5fa', '#53c3ad', '#f2b04c', '#d674ee', '#e66f93', '#8fca63
 const volumeStorageKey = 'osu-replay-editor.playback-volume';
 const backgroundStorageKey = 'osu-replay-editor.playfield-background';
 const dimStorageKey = 'osu-replay-editor.playfield-dim';
+const cursorSizeStorageKey = 'osu-replay-editor.cursor-size';
 const gridStorageKey = 'osu-replay-editor.playfield-grid';
 const compactModeStorageKey = 'osu-replay-editor.playfield-compact-mode';
 const gameplayFilterStorageKeys = {
@@ -315,6 +326,7 @@ const gameplayFilterStorageKeys = {
   fadeAfterClick: 'osu-replay-editor.filter-fade-after-click',
   showHitJudgements: 'osu-replay-editor.filter-hit-judgements',
   showHiddenFade: 'osu-replay-editor.filter-hidden-fade',
+  showSliderEndWindows: 'osu-replay-editor.filter-slider-end-windows',
 } as const;
 const zoomStorageKey = 'osu-replay-editor.playfield-zoom';
 const trailStorageKey = 'osu-replay-editor.cursor-trail-ms';
@@ -402,18 +414,21 @@ export function readPlayfieldPreferences(): Pick<
   EditorState,
   | 'showBackground'
   | 'backgroundDim'
+  | 'cursorSize'
   | 'showGrid'
   | 'compactMode'
   | 'wireframeGameplay'
   | 'fadeAfterClick'
   | 'showHitJudgements'
   | 'showHiddenFade'
+  | 'showSliderEndWindows'
   | 'playfieldZoom'
   | 'cursorTrailMs'
 > {
   try {
     const background = localStorage.getItem(backgroundStorageKey);
     const dim = localStorage.getItem(dimStorageKey);
+    const cursorSize = Number(localStorage.getItem(cursorSizeStorageKey) ?? 100);
     const grid = localStorage.getItem(gridStorageKey);
     const compactMode = localStorage.getItem(compactModeStorageKey);
     const zoom = Number(localStorage.getItem(zoomStorageKey) ?? 1);
@@ -422,12 +437,14 @@ export function readPlayfieldPreferences(): Pick<
     return {
       showBackground: background === null ? true : background !== 'false',
       backgroundDim: Number.isFinite(dimValue) && dimValue >= 0 && dimValue <= 100 ? dimValue : 62,
+      cursorSize: Number.isFinite(cursorSize) && cursorSize >= 50 && cursorSize <= 200 ? cursorSize : 100,
       showGrid: grid === null ? true : grid !== 'false',
       compactMode: compactMode === 'true',
       wireframeGameplay: localStorage.getItem(gameplayFilterStorageKeys.wireframeGameplay) === 'true',
       fadeAfterClick: localStorage.getItem(gameplayFilterStorageKeys.fadeAfterClick) === 'true',
       showHitJudgements: localStorage.getItem(gameplayFilterStorageKeys.showHitJudgements) === 'true',
       showHiddenFade: localStorage.getItem(gameplayFilterStorageKeys.showHiddenFade) === 'true',
+      showSliderEndWindows: localStorage.getItem(gameplayFilterStorageKeys.showSliderEndWindows) === 'true',
       playfieldZoom: Number.isFinite(zoom) && zoom >= 0.5 && zoom <= 2.5 ? zoom : 1,
       cursorTrailMs: Number.isFinite(trail) && trail >= 0 && trail <= 5000 ? trail : 220,
     };
@@ -435,12 +452,14 @@ export function readPlayfieldPreferences(): Pick<
     return {
       showBackground: true,
       backgroundDim: 62,
+      cursorSize: 100,
       showGrid: true,
       compactMode: false,
       wireframeGameplay: false,
       fadeAfterClick: false,
       showHitJudgements: false,
       showHiddenFade: false,
+      showSliderEndWindows: false,
       playfieldZoom: 1,
       cursorTrailMs: 220,
     };
@@ -802,6 +821,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   ...readCursorEditingPreferences(),
   editorSurface: null,
   beatmapObjects: [],
+  hitWindows: null,
   simulationByTrack: {},
   windowStartMs: 0,
   timelineFocusRequest: 0,
@@ -1123,6 +1143,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     set({ backgroundDim });
   },
+  setCursorSize: (percent) => {
+    if (!Number.isFinite(percent)) return;
+    const cursorSize = Math.max(50, Math.min(200, Math.round(percent)));
+    try {
+      localStorage.setItem(cursorSizeStorageKey, String(cursorSize));
+    } catch {
+      /* The current session remains usable. */
+    }
+    set({ cursorSize });
+  },
   setShowGrid: (showGrid) => {
     try {
       localStorage.setItem(gridStorageKey, String(showGrid));
@@ -1200,6 +1230,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   setEditorSurface: (editorSurface) => set({ editorSurface }),
   setBeatmapObjects: (beatmapObjects) => set({ beatmapObjects, selectedBeatmapObjectIndex: null }),
+  setHitWindows: (hitWindows) => set({ hitWindows }),
   setSimulationRunning: (trackId) =>
     set((state) => ({
       simulationByTrack: { ...state.simulationByTrack, [trackId]: { status: 'running', result: null, error: '' } },

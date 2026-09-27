@@ -4,6 +4,7 @@ import { inputVariantColor } from '@ore/beatmap-viewer';
 import { Check, Eye, EyeOff, LockKeyhole, LockKeyholeOpen, MoreVertical, Plus, Scan, X } from 'lucide-react';
 import { useEditorStore } from '../../stores/editor';
 import { PanelCloseButton } from '../common/PanelCloseButton';
+import { PanelPopOutButton } from '../common/FloatingPanel';
 
 function trackInputColor(base: string, keyIndex: number): string {
   const numeric = Number.parseInt(base.slice(1), 16);
@@ -35,7 +36,8 @@ export function TrackList({ onImport }: { onImport: () => void }) {
           TRACKS
           <InfoTip text="Ctrl+click selects multiple tracks. Double-click the preview icon to preview a track." />
         </span>
-        <PanelCloseButton panel="tracks" />
+        <PanelPopOutButton panel="tracks" />
+        <PanelCloseButton panel="tracks" className="tight" />
       </div>
       <div className="track-list">
         {tracks.map((track) => (

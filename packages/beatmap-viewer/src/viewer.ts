@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
+import { AlphaFilter, Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { applyPreviewMods, approachPreempt, parseOsu, type HitSlider, type ParsedBeatmap, type Point } from './parser';
 import {
   hiddenObjectAlpha,
@@ -69,6 +69,8 @@ function drawReverseArrow(graphics: Graphics, x: number, y: number, angle: numbe
     .stroke({ color: 0xffffff, width: size * 0.3, alpha, cap: 'round', join: 'round' });
 }
 
+const HIGHLIGHT_COLOR = 0xffd84d;
+
 export class PixiBeatmapViewer implements BeatmapViewerAdapter {
   private readonly app = new Application();
   private readonly backgroundLayer = new Container();
@@ -78,7 +80,17 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
   private readonly objectLayers = new Container();
   private readonly judgementLayers = new Container();
   private readonly judgementPool: Text[] = [];
-  private readonly objectLayerPool: { container: Container; graphics: Graphics; label: Text }[] = [];
+  // body: the slider body, composited on its own (opaque strokes + one group alpha) so parts of a
+  // slider that cross or double back over themselves never stack into darker patches.
+  private readonly objectLayerPool: {
+    container: Container;
+    body: Container;
+    bodyFade: AlphaFilter;
+    bodyFill: Graphics;
+    bodyCut: Graphics;
+    graphics: Graphics;
+    label: Text;
+  }[] = [];
   private readonly cursorTrail = new Graphics();
   private readonly cursor = new Graphics();
   private readonly cursorClicks = new Graphics();
@@ -98,14 +110,17 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     showClickMarkers: true,
     showBackground: true,
     backgroundDim: 62,
+    cursorSize: 100,
     showGrid: true,
     compactMode: false,
     wireframeGameplay: false,
     fadeAfterClick: false,
     showHitJudgements: false,
     showHiddenFade: false,
+    showSliderEndWindows: false,
     zoom: 1,
     cursorTrailMs: 220,
+    highlightedObjectIndex: null,
   };
   private timeMs = 0;
   private rate = 1;
@@ -359,51 +374,103 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
       });
       label.anchor.set(0.5);
       label.roundPixels = true;
-      container.addChild(graphics, label);
+      const body = new Container();
+      const bodyFade = new AlphaFilter();
+      body.filters = [bodyFade];
+      const bodyFill = new Graphics();
+      // Wireframe: erases the inside of the body so only the outline of the whole shape remains.
+      const bodyCut = new Graphics();
+      bodyCut.blendMode = 'erase';
+      body.addChild(bodyFill, bodyCut);
+      container.addChild(body, graphics, label);
       this.objectLayers.addChild(container);
-      this.objectLayerPool.push({ container, graphics, label });
+      this.objectLayerPool.push({ container, body, bodyFade, bodyFill, bodyCut, graphics, label });
     }
     const layer = this.objectLayerPool[index];
     layer.container.visible = true;
+    layer.body.visible = false;
+    layer.bodyFill.clear();
+    layer.bodyCut.clear();
     layer.graphics.clear();
     layer.label.visible = false;
     return layer;
   }
 
-  private drawSlider(graphics: Graphics, slider: HitSlider, radius: number, color: number, alpha: number) {
+  private drawSlider(
+    layer: { body: Container; bodyFade: AlphaFilter; bodyFill: Graphics; bodyCut: Graphics; graphics: Graphics },
+    slider: HitSlider,
+    radius: number,
+    color: number,
+    alpha: number,
+    highlighted = false,
+  ) {
+    const graphics = layer.graphics;
     if (!slider.path.length) return;
-    const path = () => {
-      graphics.moveTo(slider.path[0].x, slider.path[0].y);
-      slider.path.slice(1).forEach((point) => graphics.lineTo(point.x, point.y));
+    const trace = (target: Graphics) => {
+      target.moveTo(slider.path[0].x, slider.path[0].y);
+      slider.path.slice(1).forEach((point) => target.lineTo(point.x, point.y));
     };
-    if (!this.options.wireframeGameplay) {
-      path();
-      graphics.stroke({ color: 0xffffff, width: radius * 2.05, alpha: 0.82 * alpha, cap: 'round', join: 'round' });
-      path();
-      graphics.stroke({ color, width: radius * 1.78, alpha: 0.95 * alpha, cap: 'round', join: 'round' });
+    const round = { cap: 'round', join: 'round' } as const;
+    layer.body.visible = true;
+    layer.bodyFade.alpha = alpha;
+    if (highlighted) {
+      // Drawn first and wider, so it shows as a coloured rim around the whole body in both modes.
+      trace(layer.bodyFill);
+      layer.bodyFill.stroke({
+        ...round,
+        color: HIGHLIGHT_COLOR,
+        width: (this.options.wireframeGameplay ? radius * 2 : radius * 2.05) + 11,
+      });
     }
-    path();
-    graphics.stroke({
-      color: this.options.wireframeGameplay ? color : 0x11151c,
-      width: this.options.wireframeGameplay ? 2.4 : radius * 1.48,
-      alpha: 0.94 * alpha,
-      cap: 'round',
-      join: 'round',
-    });
+    if (this.options.wireframeGameplay) {
+      // A 2 px outline of the whole shape: a wide stroke with its inside erased.
+      trace(layer.bodyFill);
+      layer.bodyFill.stroke({ ...round, color, width: radius * 2 + 4 });
+      trace(layer.bodyCut);
+      layer.bodyCut.stroke({ ...round, color: 0xffffff, width: radius * 2 });
+      trace(graphics);
+      graphics.stroke({ ...round, color, width: 1.4, alpha: 0.6 * alpha });
+      // Small chevrons along the centerline show which way the slider travels.
+      const length = Math.max(1, slider.pixelLength);
+      const spacing = Math.max(24, radius * 1.6);
+      const size = Math.max(3, radius * 0.14);
+      for (let distance = spacing / 2; distance < length - spacing / 4; distance += spacing) {
+        const at = pointOnPath(slider.path, distance / length);
+        const ahead = pointOnPath(slider.path, Math.min(1, (distance + 2) / length));
+        const behind = pointOnPath(slider.path, Math.max(0, (distance - 2) / length));
+        const dx = ahead.x - behind.x;
+        const dy = ahead.y - behind.y;
+        const norm = Math.hypot(dx, dy);
+        if (norm < 1e-3) continue;
+        const ux = dx / norm;
+        const uy = dy / norm;
+        const tipX = at.x + ux * size * 0.5;
+        const tipY = at.y + uy * size * 0.5;
+        const backX = tipX - ux * size;
+        const backY = tipY - uy * size;
+        graphics
+          .moveTo(backX - uy * size * 0.75, backY + ux * size * 0.75)
+          .lineTo(tipX, tipY)
+          .lineTo(backX + uy * size * 0.75, backY - ux * size * 0.75)
+          .stroke({ ...round, color, width: 1.4, alpha: 0.85 * alpha });
+      }
+    } else {
+      // Opaque layers drawn over the whole path in turn: where the slider crosses itself the
+      // inner layers cover the outer ones, so it reads as one continuous body.
+      trace(layer.bodyFill);
+      layer.bodyFill.stroke({ ...round, color: 0xffffff, width: radius * 2.05 });
+      trace(layer.bodyFill);
+      layer.bodyFill.stroke({ ...round, color, width: radius * 1.78 });
+      trace(layer.bodyFill);
+      layer.bodyFill.stroke({ ...round, color: 0x11151c, width: radius * 1.48 });
+    }
     for (let distance = slider.tickDistance; distance < slider.pixelLength - 0.5; distance += slider.tickDistance) {
       const tick = pointOnPath(slider.path, distance / Math.max(1, slider.pixelLength));
-      const tickRadius = this.options.compactMode ? Math.max(1.5, radius * 0.065) : Math.max(2.4, radius * 0.11);
-      if (this.options.wireframeGameplay)
-        graphics.circle(tick.x, tick.y, tickRadius).stroke({ color, width: 1, alpha });
-      else
-        graphics
-          .circle(tick.x, tick.y, tickRadius)
-          .fill({ color: 0xffffff, alpha: 0.96 * alpha })
-          .stroke({
-            color,
-            width: this.options.compactMode ? Math.max(0.7, radius * 0.035) : Math.max(1, radius * 0.055),
-            alpha,
-          });
+      // Ticks are tiny dots so they mark positions without covering the path.
+      const tickRadius = this.options.compactMode ? Math.max(0.9, radius * 0.035) : Math.max(1.2, radius * 0.05);
+      graphics
+        .circle(tick.x, tick.y, tickRadius)
+        .fill({ color: this.options.wireframeGameplay ? color : 0xffffff, alpha: 0.95 * alpha });
     }
     const start = pointOnPath(slider.path, 0);
     const finish = pointOnPath(slider.path, 1);
@@ -417,22 +484,17 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
         drawReverseArrow(graphics, edge.x, edge.y, angle, radius * 0.62, alpha);
       }
     }
-    const tail = slider.repeats % 2 ? finish : start;
-    const lazerTail = this.replay?.client === 'lazer';
-    if (this.options.wireframeGameplay)
-      graphics.circle(tail.x, tail.y, radius * (lazerTail ? 0.3 : 0.22)).stroke({ color, width: 2, alpha });
-    else {
-      graphics
-        .circle(tail.x, tail.y, radius * (lazerTail ? 0.3 : 0.22))
-        .fill({ color: 0x10141b, alpha: 0.9 * alpha })
-        .stroke({ color: lazerTail ? 0xffffff : color, width: lazerTail ? 3 : 2, alpha });
-      graphics.circle(tail.x, tail.y, radius * 0.09).fill({ color: lazerTail ? color : 0xffffff, alpha });
-    }
+    if (this.options.showSliderEndWindows) this.drawSliderEndWindow(graphics, slider, radius, alpha);
     if (this.timeMs >= slider.startTime && this.timeMs <= slider.endTime) {
       const raw = ((this.timeMs - slider.startTime) / Math.max(1, slider.endTime - slider.startTime)) * slider.repeats;
       const span = Math.floor(raw);
       const progress = span % 2 ? 1 - (raw - span) : raw - span;
       const ball = pointOnPath(slider.path, progress);
+      // Follow circle: how far the cursor may stray from the ball and keep tracking (2.4× radius).
+      graphics
+        .circle(ball.x, ball.y, radius * 2.4)
+        .fill({ color, alpha: 0.08 })
+        .stroke({ color: 0xffffff, width: 2, alpha: 0.55 });
       if (this.options.wireframeGameplay)
         graphics.circle(ball.x, ball.y, radius * 0.56).stroke({ color, width: 2.5, alpha });
       else
@@ -441,6 +503,71 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
           .fill({ color: 0xffffff, alpha: 0.98 })
           .stroke({ color, width: 4, alpha: 1 });
     }
+  }
+
+  // Where the slider end is judged. Stable checks tracking at one moment,
+  // end − min(36 ms, half the slider): everything after it no longer counts, so it is dimmed.
+  // Lazer accepts tracking at any moment in that final stretch, so the whole window is lit up.
+  private drawSliderEndWindow(graphics: Graphics, slider: HitSlider, radius: number, alpha: number) {
+    const duration = slider.endTime - slider.startTime;
+    if (duration <= 0 || !slider.path.length) return;
+    const span = duration / slider.repeats;
+    const progressAt = (time: number) => {
+      const raw = Math.max(0, Math.min(slider.repeats, (time - slider.startTime) / span));
+      const repeat = Math.min(slider.repeats - 1, Math.floor(raw));
+      const local = raw - repeat;
+      return repeat % 2 ? 1 - local : local;
+    };
+    // 36 ms of real time; slider times here are map time, so scale by the DT/NC or HT speed.
+    const speed = this.mods & (64 | 512) ? 1.5 : this.mods & 256 ? 0.75 : 1;
+    const windowStart = slider.endTime - Math.min(36 * speed, duration / 2);
+    // Sample by time, not path progress: on repeat sliders the stretch can cross a turnaround.
+    const steps = 16;
+    const points = Array.from({ length: steps + 1 }, (_, index) =>
+      pointOnPath(slider.path, progressAt(windowStart + ((slider.endTime - windowStart) * index) / steps)),
+    );
+    const traceWindow = () => {
+      graphics.moveTo(points[0].x, points[0].y);
+      points.slice(1).forEach((point) => graphics.lineTo(point.x, point.y));
+    };
+    // Flat cap at the bar so nothing is painted before the stretch begins.
+    const stroke = { cap: 'butt', join: 'round' } as const;
+    // Stable (yellow): only the first moment of the stretch is checked. Lazer (cyan): any moment counts.
+    const tone = this.replay?.client === 'lazer' ? 0x5fe3ff : 0xffd166;
+    // Opaque blend of the tone over the dark body, so the overlapping end cap doesn't double up.
+    const mix = (from: number, to: number, amount: number) =>
+      [16, 8, 0].reduce((sum, shift) => {
+        const channel = Math.round(((from >> shift) & 255) * (1 - amount) + ((to >> shift) & 255) * amount);
+        return sum | (channel << shift);
+      }, 0);
+    const inner = mix(0x10141b, tone, 0.35);
+    const body = radius * 2;
+    const end = points[points.length - 1];
+    // Round the tip with a half disc facing outward only; a full circle would reach back past the bar
+    // whenever the stretch is shorter than the slider radius.
+    const before =
+      [...points].reverse().find((point) => Math.hypot(point.x - end.x, point.y - end.y) > 0.5) ?? points[0];
+    const heading = Math.atan2(end.y - before.y, end.x - before.x);
+    const tip = (size: number, color: number, opacity: number) =>
+      graphics
+        .moveTo(end.x + Math.cos(heading - Math.PI / 2) * size, end.y + Math.sin(heading - Math.PI / 2) * size)
+        .arc(end.x, end.y, size, heading - Math.PI / 2, heading + Math.PI / 2)
+        .closePath()
+        .fill({ color, alpha: opacity });
+    traceWindow();
+    graphics.stroke({ ...stroke, color: tone, width: body, alpha: 0.95 * alpha });
+    tip(radius, tone, 0.95 * alpha);
+    traceWindow();
+    graphics.stroke({ ...stroke, color: inner, width: body - 6, alpha: 0.9 * alpha });
+    tip(radius - 3, inner, 0.9 * alpha);
+    // A bar across the body where the stretch begins.
+    const start = points[0];
+    const next = points.find((point) => Math.hypot(point.x - start.x, point.y - start.y) > 0.5) ?? points[1];
+    const angle = Math.atan2(next.y - start.y, next.x - start.x) + Math.PI / 2;
+    graphics
+      .moveTo(start.x - Math.cos(angle) * radius, start.y - Math.sin(angle) * radius)
+      .lineTo(start.x + Math.cos(angle) * radius, start.y + Math.sin(angle) * radius)
+      .stroke({ color: tone, width: 3, alpha: alpha, cap: 'round' });
   }
 
   private drawCircle(
@@ -512,7 +639,9 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
       const layer = this.objectLayer(visibleIndex++);
       const graphics = layer.graphics;
       const color = map.comboColors[object.comboIndex % map.comboColors.length];
+      const highlighted = this.options.highlightedObjectIndex === objectIndex;
       if (object.kind === 'spinner') {
+        if (highlighted) graphics.circle(256, 192, 126).stroke({ color: HIGHLIGHT_COLOR, width: 4, alpha });
         const active = clamp((this.timeMs - object.startTime) / Math.max(1, object.endTime - object.startTime));
         if (this.options.wireframeGameplay) graphics.circle(256, 192, 116).stroke({ color, width: 3, alpha });
         else
@@ -527,7 +656,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
             .stroke({ color: 0xffffff, width: 7, alpha });
         continue;
       }
-      if (object.kind === 'slider') this.drawSlider(graphics, object, radius, color, alpha);
+      if (object.kind === 'slider') this.drawSlider(layer, object, radius, color, alpha, highlighted);
       let headAlpha =
         hiddenFade && object.kind === 'slider'
           ? alpha * hiddenObjectAlpha(this.timeMs, object.startTime, preempt)
@@ -541,6 +670,8 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
       )
         headAlpha = Math.min(headAlpha, hitFadeAlpha(this.timeMs, judgement.hitTime));
       if (headAlpha > 0) this.drawCircle(layer, object.x, object.y, radius, color, headAlpha, object.comboNumber);
+      if (highlighted && object.kind === 'circle')
+        graphics.circle(object.x, object.y, radius + 6).stroke({ color: HIGHLIGHT_COLOR, width: 3.5, alpha });
       if (this.timeMs <= object.startTime && !hiddenFade) {
         const progress = clamp((this.timeMs - (object.startTime - preempt)) / preempt);
         graphics
@@ -798,11 +929,12 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
         });
     }
     drawSelectedRange();
+    const cursorScale = clamp(this.options.cursorSize ?? 100, 50, 200) / 100;
     this.cursor
-      .circle(point.x, point.y, 10)
+      .circle(point.x, point.y, 10 * cursorScale)
       .fill({ color, alpha: 0.96 })
-      .stroke({ color: 0xffffff, width: 2.5, alpha: 1 });
-    this.cursor.circle(point.x, point.y, 2.5).fill(0xffffff);
+      .stroke({ color: 0xffffff, width: 2.5 * cursorScale, alpha: 1 });
+    this.cursor.circle(point.x, point.y, 2.5 * cursorScale).fill(0xffffff);
   }
 
   private releaseMedia() {
@@ -823,6 +955,8 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     this.replay = null;
     this.objectLayerPool.forEach((layer) => {
       layer.container.visible = false;
+      layer.bodyFill.clear();
+      layer.bodyCut.clear();
       layer.graphics.clear();
       layer.label.visible = false;
     });

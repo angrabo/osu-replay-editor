@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Download, RefreshCw } from 'lucide-react';
 import { InfoTip } from './components/InfoTip';
+import { Spinner } from './components/common/Loading';
 import { sidecarRequest } from './sidecar';
 import {
   simulationMetadataPatch,
@@ -534,14 +535,14 @@ export function ReplayMetadataEditor({
           <button
             className="metadata-export-button"
             type="button"
-            disabled={waitingForAutoScore}
+            disabled={waitingForAutoScore || exportState === 'Exporting…'}
             title="Export .osr to Downloads"
             onClick={() => void exportReplay()}
           >
-            <Download size={14} /> Export
+            {exportState === 'Exporting…' ? <Spinner size={12} /> : <Download size={14} />} Export
           </button>
         </div>
-        {exportState && (
+        {exportState && exportState !== 'Exporting…' && (
           <p className="sample-note" role="status">
             {exportState}
           </p>

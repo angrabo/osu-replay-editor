@@ -1,15 +1,4 @@
-import {
-  Brush,
-  Eye,
-  Hand,
-  MousePointer2,
-  Pencil,
-  Scan,
-  Scissors,
-  SlidersHorizontal,
-  Spline,
-  Clock3,
-} from 'lucide-react';
+import { Brush, Eye, Hand, MousePointer2, Pencil, Scan, SlidersHorizontal, Spline, Clock3 } from 'lucide-react';
 import { useEditorStore, type Tool } from '../../stores/editor';
 import { OptionTilesPopover } from './OptionTilesPopover';
 import { SnapWidget } from '../../hooks/useSnapDrag';
@@ -32,6 +21,7 @@ export function EditorQuickbar() {
   const fadeAfterClick = useEditorStore((state) => state.fadeAfterClick);
   const showHitJudgements = useEditorStore((state) => state.showHitJudgements);
   const showHiddenFade = useEditorStore((state) => state.showHiddenFade);
+  const showSliderEndWindows = useEditorStore((state) => state.showSliderEndWindows);
   const setGameplayFilter = useEditorStore((state) => state.setGameplayFilter);
   const cursorSmoothing = useEditorStore((state) => state.cursorSmoothing);
   const setCursorSmoothing = useEditorStore((state) => state.setCursorSmoothing);
@@ -49,7 +39,6 @@ export function EditorQuickbar() {
     { id: 'draw', icon: <Pencil size={16} />, label: 'Draw cursor path in selected time range' },
     { id: 'curve', icon: <Spline size={16} />, label: 'Move cursor frames (T)' },
     { id: 'brush', icon: <Brush size={16} />, label: 'Warp nearby cursor points, strongest at the center' },
-    { id: 'split', icon: <Scissors size={16} />, label: 'Split selected input at playhead' },
     { id: 'zoom', icon: <Scan size={16} />, label: 'Zoom playfield' },
   ];
   return (
@@ -208,13 +197,14 @@ export function EditorQuickbar() {
         title="Gameplay filters"
         description="Changes apply immediately to the playfield."
         storageKey="osu-replay-editor.popover-size.gameplay-filters"
-        active={wireframeGameplay || fadeAfterClick || showHitJudgements || showHiddenFade}
+        active={wireframeGameplay || fadeAfterClick || showHitJudgements || showHiddenFade || showSliderEndWindows}
         tiles={(
           [
             ['wireframeGameplay', 'Wireframe gameplay', wireframeGameplay, optionPreviews.wireframe],
             ['fadeAfterClick', 'Fade after click', fadeAfterClick, optionPreviews.fadeAfterClick],
             ['showHitJudgements', 'Show 100, 50 and misses', showHitJudgements, optionPreviews.judgements],
             ['showHiddenFade', 'Show Hidden fade', showHiddenFade, optionPreviews.hiddenFade],
+            ['showSliderEndWindows', 'Show slider end windows', showSliderEndWindows, optionPreviews.sliderEnds],
           ] as const
         ).map(([filter, label, checked, preview]) => ({
           id: filter,

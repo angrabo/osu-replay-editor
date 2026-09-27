@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CHANGELOG, type ChangelogEntry } from './changelog';
 import { APP_VERSION, REPOSITORY, releasesUrl, UPDATER_ENABLED } from './appMeta';
 import { renderMarkdown } from './utils/markdown';
+import { Skeleton, Spinner } from './components/common/Loading';
 
 type GithubRelease = {
   tag_name: string;
@@ -55,7 +56,12 @@ export function ChangelogDialog({ onClose }: { onClose: () => void }) {
             <h2>Changelog</h2>
             <span>
               Version {APP_VERSION}
-              {loading ? ' · loading from GitHub…' : ''}
+              {loading && (
+                <>
+                  {' · '}
+                  <Spinner size={9} /> loading from GitHub
+                </>
+              )}
             </span>
           </div>
           <button aria-label="Close" onClick={onClose}>
@@ -63,6 +69,20 @@ export function ChangelogDialog({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <div className="changelog-body">
+          {loading &&
+            !entries.length &&
+            [0, 1, 2].map((index) => (
+              <article className="changelog-entry changelog-skeleton" key={`skeleton-${index}`} aria-hidden="true">
+                <div className="changelog-entry-heading">
+                  <Skeleton width={70} height={13} />
+                  <Skeleton width={64} height={9} />
+                </div>
+                <Skeleton width="55%" height={12} />
+                {[92, 80, 86, 64].map((width) => (
+                  <Skeleton key={width} width={`${width}%`} height={9} />
+                ))}
+              </article>
+            ))}
           {entries.map((entry) => (
             <article className="changelog-entry" key={entry.version}>
               <div className="changelog-entry-heading">

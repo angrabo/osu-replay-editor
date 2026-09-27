@@ -46,14 +46,20 @@ export type ViewerOptions = {
   showClickMarkers: boolean;
   showBackground: boolean;
   backgroundDim: number;
+  // Cursor size in percent of the default (100).
+  cursorSize: number;
   showGrid: boolean;
   compactMode: boolean;
   wireframeGameplay: boolean;
   fadeAfterClick: boolean;
   showHitJudgements: boolean;
   showHiddenFade: boolean;
+  // Mark where the slider end is judged: stable checks one moment, lazer a window before the end.
+  showSliderEndWindows: boolean;
   zoom: number;
   cursorTrailMs: number;
+  // Hit object picked in the editor (timeline or object list), outlined on the playfield.
+  highlightedObjectIndex: number | null;
 };
 export type ViewerCallbacks = {
   onLoaded?: (beatmap: ParsedBeatmap) => void;

@@ -4,6 +4,7 @@ import { formatTime, type InputKey, useEditorStore } from '../../stores/editor';
 import { Field } from '../common/Field';
 import { InfoTip } from '../InfoTip';
 import { PanelCloseButton } from '../common/PanelCloseButton';
+import { PanelPopOutButton } from '../common/FloatingPanel';
 
 const inputKeys: InputKey[] = ['M1', 'M2', 'K1', 'K2'];
 const shiftSteps = [-10, -5, -1, 1, 5, 10];
@@ -67,7 +68,8 @@ export function SelectionPanel() {
           Selection
           <InfoTip text="Select input events, Alt+drag across Cursor X/Y for a time range, or pick a hit object. Cursor coordinates are read only here — edit nodes on the playfield." />
         </span>
-        <PanelCloseButton panel="selection" />
+        <PanelPopOutButton panel="selection" />
+        <PanelCloseButton panel="selection" className="tight" />
       </div>
       <div className="selection-body">
         {selectedInputs.length > 0 && (

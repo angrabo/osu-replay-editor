@@ -4,6 +4,7 @@ import { UPDATER_ENABLED } from '../appMeta';
 
 export type PendingUpdate = { version: string; body: string | null };
 export type UpdateCheckResult = 'idle' | 'checking' | 'up-to-date' | 'error';
+export type UpdateProgress = { stage: 'downloading' | 'installing'; downloaded: number; total: number | null };
 
 /// <summary>
 /// Checks the configured GitHub release endpoint for a newer signed build (once on mount, and
@@ -17,6 +18,7 @@ export function useAutoUpdater() {
   const [installError, setInstallError] = useState<string | null>(null);
   const [checkResult, setCheckResult] = useState<UpdateCheckResult>('idle');
   const [updateHandle, setUpdateHandle] = useState<Update | null>(null);
+  const [progress, setProgress] = useState<UpdateProgress | null>(null);
 
   const checkNow = () => {
     if (!UPDATER_ENABLED) {
@@ -54,14 +56,33 @@ export function useAutoUpdater() {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
         const { relaunch } = await import('@tauri-apps/plugin-process');
+        let downloaded = 0;
+        let total: number | null = null;
+        let reported = -1;
+        setProgress({ stage: 'downloading', downloaded: 0, total: null });
+        await updateHandle.download((event) => {
+          if (event.event === 'Started') total = event.data.contentLength ?? null;
+          else if (event.event === 'Progress') downloaded += event.data.chunkLength;
+          // Chunks arrive far more often than the bar can change; re-render per 0.5% (or 256 KB).
+          const step = total ? Math.floor((downloaded / total) * 200) : Math.floor(downloaded / 262144);
+          if (step !== reported || event.event !== 'Progress') {
+            reported = step;
+            setProgress({ stage: 'downloading', downloaded, total });
+          }
+        });
+        setProgress({ stage: 'installing', downloaded, total });
         // The sidecar is a separate process the NSIS installer doesn't know about — stop it
         // first, otherwise overwriting replay-editor-sidecar.exe fails with "file in use".
         await invoke('stop_sidecar_for_update');
-        await updateHandle.downloadAndInstall();
+        await updateHandle.install();
         await relaunch();
       } catch (error) {
         console.error('Update install failed:', error);
-        setInstallError(error instanceof Error ? error.message : String(error));
+        const platforms = (updateHandle.rawJson as { platforms?: Record<string, { url?: string }> }).platforms;
+        const url = platforms ? Object.values(platforms)[0]?.url : undefined;
+        const message = error instanceof Error ? error.message : String(error);
+        setInstallError(url ? `${message} (${url})` : message);
+        setProgress(null);
         setInstalling(false);
       }
     })();
@@ -72,5 +93,5 @@ export function useAutoUpdater() {
     setInstallError(null);
   };
 
-  return { pendingUpdate, installing, installError, install, dismiss, checkNow, checkResult };
+  return { pendingUpdate, installing, installError, progress, install, dismiss, checkNow, checkResult };
 }

@@ -44,6 +44,61 @@ fn stop_sidecar_for_update(state: tauri::State<'_, SidecarState>) {
     }
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateDiagnosis {
+    current_version: String,
+    remote_version: Option<String>,
+    download_url: Option<String>,
+    manifest: Option<serde_json::Value>,
+    downloaded_bytes: Option<usize>,
+    error: Option<String>,
+}
+
+/// <summary>
+/// Runs the update pipeline up to (but not including) installation: fetches the manifest even
+/// when it isn't newer, then downloads the installer and verifies its signature. Lets a dev
+/// build see exactly which step of a real update fails.
+/// </summary>
+#[tauri::command]
+async fn diagnose_update(app: tauri::AppHandle) -> UpdateDiagnosis {
+    use tauri_plugin_updater::UpdaterExt;
+    let mut diagnosis = UpdateDiagnosis {
+        current_version: app.package_info().version.to_string(),
+        remote_version: None,
+        download_url: None,
+        manifest: None,
+        downloaded_bytes: None,
+        error: None,
+    };
+    let updater = match app.updater_builder().version_comparator(|_, _| true).build() {
+        Ok(updater) => updater,
+        Err(error) => {
+            diagnosis.error = Some(format!("updater setup failed: {error}"));
+            return diagnosis;
+        }
+    };
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => {
+            diagnosis.error = Some("the endpoint returned no update for this platform".into());
+            return diagnosis;
+        }
+        Err(error) => {
+            diagnosis.error = Some(format!("manifest check failed: {error}"));
+            return diagnosis;
+        }
+    };
+    diagnosis.remote_version = Some(update.version.clone());
+    diagnosis.download_url = Some(update.download_url.to_string());
+    diagnosis.manifest = Some(update.raw_json.clone());
+    match update.download(|_, _| {}, || {}).await {
+        Ok(bytes) => diagnosis.downloaded_bytes = Some(bytes.len()),
+        Err(error) => diagnosis.error = Some(format!("download or signature check failed: {error}")),
+    }
+    diagnosis
+}
+
 fn sidecar_path() -> Result<PathBuf, String> {
     let target_name = "replay-editor-sidecar-x86_64-pc-windows-msvc.exe";
     let development = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -135,7 +190,7 @@ pub fn run() {
             monitor_sidecar(app.handle().clone());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![sidecar_connection, stop_sidecar_for_update])
+        .invoke_handler(tauri::generate_handler![sidecar_connection, stop_sidecar_for_update, diagnose_update])
         .build(tauri::generate_context!())
         .expect("Failed to build Tauri application");
 

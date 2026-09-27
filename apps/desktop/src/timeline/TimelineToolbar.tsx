@@ -4,6 +4,7 @@ import { useEditorStore } from '../stores/editor';
 import type { Resolution } from '../MapAcquisition';
 import { useSimulationRunner } from '../hooks/useSimulationRunner';
 import { InfoTip } from '../components/InfoTip';
+import { Spinner } from '../components/common/Loading';
 
 const baseLaneHeight = 48;
 export type TimelineLayout = 'stack' | 'overlap';
@@ -115,7 +116,13 @@ export function TimelineToolbar({
             disabled={!previewTrack || !resolution || simulationState?.status === 'running'}
             onClick={() => void runSimulation()}
           >
-            {simulationState?.status === 'running' ? 'Updating…' : 'Run now'}
+            {simulationState?.status === 'running' ? (
+              <>
+                <Spinner size={10} /> Updating
+              </>
+            ) : (
+              'Run now'
+            )}
           </button>
           {simulationState?.result && (
             <span className="simulation-toolbar-result">

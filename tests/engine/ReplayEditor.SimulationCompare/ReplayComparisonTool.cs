@@ -100,6 +100,18 @@ internal static class ReplayComparisonTool
         return multiplier;
     }
 
+    private static int? FailedJudgedObjects(ReplayFile replay)
+    {
+        if (ReplayFileReader.TryDecodeLazerScoreInfo(replay.Metadata.LazerScoreInfo) is not { } lazerJson)
+            return null;
+        using var document = JsonDocument.Parse(lazerJson);
+        var root = document.RootElement;
+        if (!root.TryGetProperty("rank", out var rank) || rank.GetString() != "F" || !root.TryGetProperty("statistics", out var statistics))
+            return null;
+        int Count(string name) => statistics.TryGetProperty(name, out var value) && value.TryGetInt32(out var count) ? count : 0;
+        return Count("great") + Count("ok") + Count("meh") + Count("miss");
+    }
+
     private static double LegacyModMultiplier(int mods, int version)
     {
         if (version >= 30_000_000)
@@ -149,12 +161,13 @@ internal static class ReplayComparisonTool
 
         var diagnosticFrames = replay.Frames.Select(frame => new SimulationFrame(frame.TimeMs, frame.X, frame.Y, frame.Keys)).ToArray();
         var mapText = Encoding.UTF8.GetString(mapBytes);
+        var failAfter = FailedJudgedObjects(replay);
         var result = SimulationEngine.SimulateWhole(mapText, diagnosticFrames, replay.Metadata.Mods,
-            replay.Metadata.Version, default, scoreMultiplier);
+            replay.Metadata.Version, default, scoreMultiplier, failAfterJudgedObjects: failAfter);
         if (replay.Metadata.Version >= 30_000_000 && !MatchesPrimaryAggregates(result, replay.Metadata))
         {
             var alternate = SimulationEngine.SimulateWhole(mapText, diagnosticFrames, replay.Metadata.Mods,
-                replay.Metadata.Version, default, scoreMultiplier, lazerInclusiveLateHitWindows: true);
+                replay.Metadata.Version, default, scoreMultiplier, lazerInclusiveLateHitWindows: true, failAfterJudgedObjects: failAfter);
             if (MatchesPrimaryAggregates(alternate, replay.Metadata))
             {
                 Console.WriteLine("Lazer boundary retry: selected inclusive late edge from recorded aggregate counts.");

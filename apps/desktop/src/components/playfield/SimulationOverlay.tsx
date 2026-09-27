@@ -1,18 +1,45 @@
 import { SnapWidget } from '../../hooks/useSnapDrag';
 import { PanelCloseButton } from '../common/PanelCloseButton';
-import type { SimulationResult } from '../../stores/editor';
+import { Spinner } from '../common/Loading';
+import type { SimulationRunState } from '../../stores/editor';
 import { formatAccuracy } from '../../utils/formatAccuracy';
 
-export function SimulationOverlay({ simulation }: { simulation: SimulationResult }) {
+// Always-present score readout: placeholders while nothing is known, a shimmer while the first
+// simulation runs, and the previous numbers (dimmed) while a newer run is on its way.
+export function SimulationOverlay({ state }: { state: SimulationRunState | undefined }) {
+  const running = state?.status === 'running';
+  const result = state?.result && state.result.status !== 'unsupported' ? state.result : null;
+  const label = running
+    ? 'SIMULATING'
+    : state?.status === 'error'
+      ? 'SIMULATION FAILED'
+      : state?.result?.status === 'unsupported'
+        ? 'NOT SIMULATED'
+        : result?.status === 'verified'
+          ? 'SIMULATION VERIFIED'
+          : result
+            ? 'SIMULATION ESTIMATE'
+            : 'SIMULATION';
+  const placeholder = !result;
   return (
-    <SnapWidget id="simulation" fallback="top-right" className="score-overlay simulation-score-overlay">
+    <SnapWidget
+      id="simulation"
+      fallback="top-right"
+      className={`score-overlay simulation-score-overlay${running ? ' running' : ''}${placeholder ? ' placeholder' : ''}`}
+      title={state?.status === 'error' ? state.error : undefined}
+    >
       <PanelCloseButton panel="simulation" className="overlay-close" />
-      <small>{simulation.status === 'verified' ? 'SIMULATION VERIFIED' : 'SIMULATION ESTIMATE'}</small>
-      <strong>{simulation.score.toLocaleString('en-US')}</strong>
-      <span>{formatAccuracy(simulation)}%</span>
-      <small>
-        {simulation.maxCombo}x · {simulation.misses} miss
+      <small className="simulation-label">
+        {running && <Spinner size={8} />}
+        {label}
+        {running && <span className="simulation-dots" aria-hidden="true" />}
       </small>
+      {/* Keyed on the score so a fresh result replays the pop-in animation. */}
+      <strong key={result ? `score-${result.score}` : 'score-none'} className={result ? 'simulation-pop' : undefined}>
+        {result ? result.score.toLocaleString('en-US') : '-------'}
+      </strong>
+      <span>{result ? `${formatAccuracy(result)}%` : '---.--%'}</span>
+      <small>{result ? `${result.maxCombo}x · ${result.misses} miss` : '---x · --- miss'}</small>
     </SnapWidget>
   );
 }

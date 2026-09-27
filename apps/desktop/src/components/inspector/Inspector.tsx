@@ -7,7 +7,9 @@ import { formatTime, logicalKeys, nearestReplayFrameTime, useEditorStore } from 
 import { formatAccuracy } from '../../utils/formatAccuracy';
 import { CursorTimingControl } from './CursorTimingControl';
 import { InfoTip } from '../InfoTip';
+import { Skeleton } from '../common/Loading';
 import { PanelCloseButton } from '../common/PanelCloseButton';
+import { PanelPopOutButton } from '../common/FloatingPanel';
 
 function InspectorSection({ title, children }: { title: string; children: ReactNode }) {
   const [open, setOpen] = useState(true);
@@ -60,7 +62,8 @@ export function Inspector() {
         <TabButton active={tab === 'metadata'} onClick={() => setTab('metadata')}>
           Metadata
         </TabButton>
-        <PanelCloseButton panel="inspector" className="in-tabs" />
+        <PanelPopOutButton panel="inspector" className="in-tabs" />
+        <PanelCloseButton panel="inspector" className="in-tabs tight" />
       </div>
       {tab === 'inspector' && (
         <div className="inspector-body">
@@ -189,13 +192,18 @@ export function Inspector() {
                     </div>
                   )}
                 </>
+              ) : simulationState?.status === 'running' ? (
+                <div className="simulation-skeleton" role="status" aria-label="Simulating">
+                  {[64, 48, 56, 40, 52].map((width, index) => (
+                    <div className="simulation-skeleton-row" key={index}>
+                      <Skeleton width={`${width}%`} height={9} />
+                      <Skeleton width="30%" height={9} />
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <p className={`sample-note${simulationState?.status === 'error' ? ' simulation-error' : ''}`}>
-                  {simulationState?.status === 'running'
-                    ? 'Updating…'
-                    : simulationState?.status === 'error'
-                      ? simulationState.error
-                      : 'Waiting for the beatmap.'}
+                  {simulationState?.status === 'error' ? simulationState.error : 'Waiting for the beatmap.'}
                 </p>
               )}
             </InspectorSection>

@@ -1,5 +1,7 @@
 import {
   applyPreviewMods,
+  approachPreempt,
+  objectAlpha,
   inputVariantColor,
   parseOsu,
   PixiBeatmapViewer,
@@ -14,6 +16,7 @@ import type { Resolution } from '../MapAcquisition';
 import { sidecarBlobRequest } from '../sidecar';
 import {
   adjacentReplayFrameTime,
+  hitWindowsForOd,
   editReplayInputs,
   useEditorStore,
   type CursorStrokePoint,
@@ -21,6 +24,7 @@ import {
 } from '../stores/editor';
 import { SnapWidget } from '../hooks/useSnapDrag';
 import { StepNumberInput } from '../components/common/StepNumberInput';
+import { Skeleton, Spinner } from '../components/common/Loading';
 
 const DEV_FIXTURE = `osu file format v14
 [General]
@@ -98,18 +102,21 @@ export function BeatmapCanvas({
   const [ready, setReady] = useState(false);
   const [baseBeatmap, setBaseBeatmap] = useState<ParsedBeatmap | null>(null);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const playing = useEditorStore((state) => state.playing);
   const playhead = useEditorStore((state) => state.playheadMs);
   const rate = useEditorStore((state) => state.playbackRate);
   const volume = useEditorStore((state) => state.volume);
   const showBackground = useEditorStore((state) => state.showBackground);
   const backgroundDim = useEditorStore((state) => state.backgroundDim);
+  const cursorSize = useEditorStore((state) => state.cursorSize);
   const showGrid = useEditorStore((state) => state.showGrid);
   const compactMode = useEditorStore((state) => state.compactMode);
   const wireframeGameplay = useEditorStore((state) => state.wireframeGameplay);
   const fadeAfterClick = useEditorStore((state) => state.fadeAfterClick);
   const showHitJudgements = useEditorStore((state) => state.showHitJudgements);
   const showHiddenFade = useEditorStore((state) => state.showHiddenFade);
+  const showSliderEndWindows = useEditorStore((state) => state.showSliderEndWindows);
   // Zoom is per-pane (local state), not the shared store value — otherwise the two split-view
   // panes would fight over one zoom level. Seeded once from the saved preference at mount.
   const [playfieldZoom, setPlayfieldZoomRaw] = useState(() => useEditorStore.getState().playfieldZoom);
@@ -156,6 +163,7 @@ export function BeatmapCanvas({
   const selectedTimeRange = useEditorStore((state) => state.selectedTimeRange);
   const selectCursorFrame = useEditorStore((state) => state.selectCursorFrame);
   const selectBeatmapObject = useEditorStore((state) => state.selectBeatmapObject);
+  const selectedBeatmapObjectIndex = useEditorStore((state) => state.selectedBeatmapObjectIndex);
   const setCursorFramePosition = useEditorStore((state) => state.setCursorFramePosition);
   const deleteCursorFrame = useEditorStore((state) => state.deleteCursorFrame);
   const drawCursorPath = useEditorStore((state) => state.drawCursorPath);
@@ -169,6 +177,7 @@ export function BeatmapCanvas({
     const host = hostRef.current;
     if (!host || !resolution) {
       setReady(false);
+      setLoading(false);
       setBaseBeatmap(null);
       const store = useEditorStore.getState();
       store.setBeatmapObjects([]);
@@ -180,7 +189,8 @@ export function BeatmapCanvas({
     let cancelled = false;
     const objectUrls: string[] = [];
     setReady(false);
-    setError('Loading beatmap viewer…');
+    setError('');
+    setLoading(true);
     void (async () => {
       const difficulty = resolution.difficulties.find(
         (item) => item.checksum.toLowerCase() === resolution.replayHash.toLowerCase(),
@@ -264,21 +274,27 @@ export function BeatmapCanvas({
         showClickMarkers: settings.showClickMarkers,
         showBackground: settings.showBackground,
         backgroundDim: settings.backgroundDim,
+        cursorSize: settings.cursorSize,
         showGrid: settings.showGrid,
         compactMode: settings.compactMode,
         wireframeGameplay: settings.wireframeGameplay,
         fadeAfterClick: settings.fadeAfterClick,
         showHitJudgements: settings.showHitJudgements,
         showHiddenFade: settings.showHiddenFade,
+        showSliderEndWindows: settings.showSliderEndWindows,
         zoom: playfieldZoom,
         cursorTrailMs: settings.cursorTrailMs,
+        highlightedObjectIndex: settings.selectedBeatmapObjectIndex,
       });
       viewer.seek(0);
       if (clock && useEditorStore.getState().playing) viewer.play();
       setReady(true);
       setError('');
+      setLoading(false);
     })().catch((reason) => {
-      if (!cancelled) setError((reason as Error).message);
+      if (cancelled) return;
+      setLoading(false);
+      setError((reason as Error).message);
     });
     return () => {
       cancelled = true;
@@ -328,6 +344,41 @@ export function BeatmapCanvas({
     if (ready) viewerRef.current?.setMods(previewMods);
   }, [previewMods, ready]);
   useEffect(() => {
+    // Only the main playfield publishes hit windows; split-view panes may preview other mods.
+    if (!clock) return;
+    useEditorStore.getState().setHitWindows(previewBeatmap ? hitWindowsForOd(previewBeatmap.overallDifficulty) : null);
+  }, [previewBeatmap, clock]);
+  // Hit object under a playfield point that is visible at the playhead; earlier objects are drawn
+  // on top, so they win when several overlap.
+  const hitObjectAt = (point: { x: number; y: number }): number | null => {
+    if (!previewBeatmap) return null;
+    const timeMs = useEditorStore.getState().playheadMs;
+    const radius = 54.4 - 4.48 * Math.min(10, Math.max(0, previewBeatmap.circleSize));
+    const preempt = approachPreempt(previewBeatmap.approachRate);
+    for (const [index, object] of previewBeatmap.hitObjects.entries()) {
+      if (objectAlpha(timeMs, object.startTime, object.endTime, preempt) <= 0) continue;
+      if (object.kind === 'spinner') {
+        if (Math.hypot(point.x - 256, point.y - 192) <= 126) return index;
+        continue;
+      }
+      if (Math.hypot(point.x - object.x, point.y - object.y) <= radius) return index;
+      if (object.kind === 'slider') {
+        for (let segment = 1; segment < object.path.length; segment++) {
+          const from = object.path[segment - 1];
+          const to = object.path[segment];
+          const dx = to.x - from.x;
+          const dy = to.y - from.y;
+          const lengthSquared = dx * dx + dy * dy;
+          const t = lengthSquared
+            ? Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.y - from.y) * dy) / lengthSquared))
+            : 0;
+          if (Math.hypot(point.x - (from.x + dx * t), point.y - (from.y + dy * t)) <= radius) return index;
+        }
+      }
+    }
+    return null;
+  };
+  useEffect(() => {
     if (ready)
       viewerRef.current?.setOptions({
         showCursorTrail: cursorTrailMs > 0,
@@ -337,24 +388,30 @@ export function BeatmapCanvas({
         showClickMarkers,
         showBackground,
         backgroundDim,
+        cursorSize,
         showGrid,
         compactMode,
         wireframeGameplay,
         fadeAfterClick,
         showHitJudgements,
         showHiddenFade,
+        showSliderEndWindows,
         zoom: playfieldZoom,
         cursorTrailMs,
+        highlightedObjectIndex: selectedBeatmapObjectIndex,
       });
   }, [
+    selectedBeatmapObjectIndex,
     showBackground,
     backgroundDim,
+    cursorSize,
     showGrid,
     compactMode,
     wireframeGameplay,
     fadeAfterClick,
     showHitJudgements,
     showHiddenFade,
+    showSliderEndWindows,
     playfieldZoom,
     cursorTrailMs,
     showCursorPast,
@@ -465,11 +522,13 @@ export function BeatmapCanvas({
     .padStart(6, '0')}`;
   const curveFrames =
     interactive && (tool === 'curve' || tool === 'select') && displayedReplay
-      ? displayedReplay.frames.filter(
-          (frame) =>
-            frame.timeMs >= playhead - cursorTrailMs &&
-            frame.timeMs <= playhead + cursorTrailMs &&
-            (frame.timeMs <= playhead ? showCursorPast : showCursorFuture),
+      ? displayedReplay.frames.flatMap((frame, index) =>
+          frame.timeMs >= playhead - cursorTrailMs &&
+          frame.timeMs <= playhead + cursorTrailMs &&
+          (frame.timeMs <= playhead ? showCursorPast : showCursorFuture)
+            ? // Replays can hold several frames at the same time, so the replay index is the key.
+              [{ ...frame, index }]
+            : [],
         )
       : [];
   const pointerPoint = (clientX: number, clientY: number) => {
@@ -554,14 +613,12 @@ export function BeatmapCanvas({
           return;
         }
         if (tool === 'select' || tool === 'curve') {
-          selectBeatmapObject(null);
+          const point =
+            tool === 'select' && !event.ctrlKey && !event.metaKey ? pointerPoint(event.clientX, event.clientY) : null;
+          const objectIndex = point ? hitObjectAt(point) : null;
+          selectBeatmapObject(objectIndex);
+          if (objectIndex !== null) return;
           if (!(event.ctrlKey || event.metaKey || event.shiftKey)) selectCursorFrame(null);
-          return;
-        }
-        if (tool === 'split') {
-          const state = useEditorStore.getState();
-          if (state.selectedInput)
-            state.cutInputAt(state.selectedInput.trackId, state.selectedInput.key, state.playheadMs);
           return;
         }
         if (tool === 'zoom') {
@@ -719,6 +776,19 @@ export function BeatmapCanvas({
           <span>Open a replay from File to resolve its exact difficulty.</span>
         </div>
       )}
+      {resolution && loading && !error && (
+        <div className="viewer-message viewer-loading" role="status" aria-label="Loading beatmap">
+          <div className="viewer-loading-field">
+            <Skeleton width="100%" height="100%" radius={4} />
+            <Skeleton className="viewer-loading-circle a" width={34} height={34} radius={17} />
+            <Skeleton className="viewer-loading-circle b" width={34} height={34} radius={17} />
+            <Skeleton className="viewer-loading-circle c" width={34} height={34} radius={17} />
+          </div>
+          <span className="viewer-loading-label">
+            <Spinner size={11} /> Loading beatmap
+          </span>
+        </div>
+      )}
       {resolution && error && (
         <div className="viewer-message">
           <strong>{error}</strong>
@@ -749,7 +819,7 @@ export function BeatmapCanvas({
           return (
             <button
               type="button"
-              key={frame.timeMs}
+              key={frame.index}
               className={`cursor-curve-node ${frame.timeMs <= playhead ? 'past' : 'future'}${selected ? ' selected' : ''}${tool === 'select' ? ' select-only' : ''}`}
               aria-label={`Cursor line node at ${frame.timeMs} milliseconds`}
               title={`${frame.timeMs} ms · X ${Math.round(frame.x)} · Y ${Math.round(frame.y)}`}

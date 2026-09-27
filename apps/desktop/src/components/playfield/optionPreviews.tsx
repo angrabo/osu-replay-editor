@@ -54,6 +54,25 @@ function HitCircle({
   );
 }
 
+// A straight slider whose end stretch is painted like the "slider end windows" filter draws it.
+function SliderEndSample({ y, tone, inner, label }: { y: number; tone: string; inner: string; label: string }) {
+  return (
+    <g>
+      <line x1="12" y1={y} x2="84" y2={y} stroke={PINK} strokeWidth="16" strokeLinecap="round" strokeOpacity="0.85" />
+      <line x1="12" y1={y} x2="84" y2={y} stroke="#10141b" strokeWidth="12" strokeLinecap="round" />
+      <line x1="64" y1={y} x2="84" y2={y} stroke={tone} strokeWidth="16" />
+      <circle cx="84" cy={y} r="8" fill={tone} />
+      <line x1="64" y1={y} x2="84" y2={y} stroke={inner} strokeWidth="10" />
+      <circle cx="84" cy={y} r="5" fill={inner} />
+      <line x1="64" y1={y - 8} x2="64" y2={y + 8} stroke={tone} strokeWidth="2" strokeLinecap="round" />
+      <circle cx="12" cy={y} r="6" fill={PINK} stroke="#fff" strokeWidth="1.5" />
+      <text x="96" y={y + 3} fontSize="7.5" fontWeight="700" fill={tone}>
+        {label}
+      </text>
+    </g>
+  );
+}
+
 const path = 'M8 58 C 26 20, 44 18, 60 36 S 96 58, 112 14';
 
 export const optionPreviews = {
@@ -119,6 +138,12 @@ export const optionPreviews = {
       <text x="96" y="25" textAnchor="middle" fontSize="15" fontWeight="900" fill="#ff596a">
         ×
       </text>
+    </Frame>
+  ),
+  sliderEnds: (
+    <Frame>
+      <SliderEndSample y={22} tone="#ffd166" inner="#5b5540" label="stable" />
+      <SliderEndSample y={52} tone="#5fe3ff" inner="#2b4f5c" label="lazer" />
     </Frame>
   ),
   hiddenFade: (

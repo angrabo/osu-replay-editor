@@ -12,12 +12,14 @@ internal sealed class LazerScoreModel : ScoreModel
         "Lazer score uses the 1,000,000 accuracy/combo model with nested slider checks and spinner bonus; replay parity is still being validated.";
 
     public (long Score, int MaximumCombo, int EndingCombo) Compute(
-        IEnumerable<LazerScoreEvent> events, double accuracy, long bonusScore, double scoreMultiplier)
+        IEnumerable<LazerScoreEvent> events, double accuracy, long bonusScore, double scoreMultiplier, double accuracyProgress = 1)
     {
         var comboScore = ComboScore(events);
         var comboProgress = comboScore.MaximumPortion <= 0 ? 1 : comboScore.CurrentPortion / comboScore.MaximumPortion;
         var scoreWithoutMods = (long)Math.Round(500_000 * accuracy * comboProgress
-            + 500_000 * Math.Pow(accuracy, 5)
+            // Scaled by the share of accuracy judgements actually made, so a failed play only earns
+            // the part of the map it reached (maximums always cover the whole beatmap).
+            + 500_000 * Math.Pow(accuracy, 5) * Math.Clamp(accuracyProgress, 0, 1)
             + bonusScore);
         var score = (long)Math.Round(scoreWithoutMods * Math.Max(0, scoreMultiplier));
 
@@ -37,6 +39,8 @@ internal sealed class LazerScoreModel : ScoreModel
         {
             perfectCombo++;
             maximumPortion += item.MaximumValue * Math.Sqrt(perfectCombo);
+            if (!item.Judged)
+                continue;
 
             if (item.Hit)
             {

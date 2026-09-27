@@ -11,10 +11,10 @@ namespace ReplayEditor.Simulation.Judging;
 internal static class SliderJudge
 {
     public static (double Time, int Score, bool Hit)[] Parts(IReadOnlyList<SimulationFrame> frames, MapObject item,
-        double rate, double tickRate, double radius, bool headHit, bool lazer)
+        double rate, double tickRate, double radius, bool headHit, bool lazer, double? headHitTime = null)
     {
         var ordered = BuildPartTimeline(item, rate, tickRate, headHit);
-        JudgePartTimeline(ordered, frames, item, rate, radius, lazer, headHit);
+        JudgePartTimeline(ordered, frames, item, rate, radius, lazer, headHit, headHitTime);
         return ordered;
     }
 
@@ -71,7 +71,7 @@ internal static class SliderJudge
     }
 
     private static void JudgePartTimeline((double Time, int Score, bool Hit)[] ordered, IReadOnlyList<SimulationFrame> frames,
-        MapObject item, double rate, double radius, bool lazer, bool headHit)
+        MapObject item, double rate, double radius, bool lazer, bool headHit, double? headHitTime)
     {
         var start = item.Start / rate;
         var active = headHit;
@@ -79,7 +79,44 @@ internal static class SliderJudge
         while (frameIndex < frames.Count && frames[frameIndex].TimeMs <= start)
             frameIndex++;
 
-        for (var index = 1; index < ordered.Length; index++)
+        var firstIndex = 1;
+        if (lazer && headHit && headHitTime is { } hitTime && hitTime > start)
+        {
+            // Lazer's SliderInputManager.PostProcessHeadJudgement: when the head is hit late and the
+            // cursor is inside the expanded follow area, every nested part already passed is hit as
+            // long as the cursor (where it is at the hit) lies within the expanded area around the ball
+            // at that part's time; the first part that fails, and all passed parts after it, miss.
+            // Tracking then starts immediately with the expanded radius.
+            var cursorAtHit = CursorTrack.CursorAt(frames, hitTime);
+            var inArea = cursorAtHit is not null && Distance(cursorAtHit.Value, BallAt(item, rate, hitTime)) <= radius;
+            var forcing = inArea;
+            while (firstIndex < ordered.Length && ordered[firstIndex].Time <= hitTime)
+            {
+                var part = ordered[firstIndex];
+                forcing = forcing && Distance(cursorAtHit!.Value, BallAt(item, rate, part.Time)) <= radius;
+                ordered[firstIndex] = (Math.Round(part.Time), part.Score, forcing);
+                firstIndex++;
+            }
+
+            while (frameIndex < frames.Count && frames[frameIndex].TimeMs <= hitTime)
+                frameIndex++;
+            active = inArea;
+        }
+
+        // Lazer judges the tail over a window (DrawableSliderTail: hit if tracking at any moment from
+        // min(36 ms, half the slider) before the end until the end); stable checks only that moment.
+        var end = item.End / rate;
+        var tailWindowStart = end - Math.Min(36, (end - start) / 2);
+        var tailIndex = Array.FindLastIndex(ordered, part => part.Score == 30 && Math.Abs(part.Time - tailWindowStart) < 1e-6);
+        var tailForced = tailIndex >= 0 && tailIndex < firstIndex;
+        var trackedInTailWindow = false;
+        void Sample(double time, bool tracked)
+        {
+            if (tracked && time >= Math.Round(tailWindowStart) && time <= Math.Round(end))
+                trackedInTailWindow = true;
+        }
+
+        for (var index = firstIndex; index < ordered.Length; index++)
         {
             // Stable's gameplay clock and recorded input use whole milliseconds.
             // At a shared timestamp, the slider judgement precedes that input
@@ -92,6 +129,7 @@ internal static class SliderJudge
                 active = lazer
                     ? FollowPosition(active, (frame.X, frame.Y), ball, radius)
                     : FollowState(active, CursorTrack.Held(frame), (frame.X, frame.Y), ball, radius);
+                Sample(frame.TimeMs, active && CursorTrack.Held(frame));
             }
 
             var heldFrame = frameIndex == 0 ? null : frames[frameIndex - 1];
@@ -105,8 +143,26 @@ internal static class SliderJudge
             // Lazer's SliderInputManager.Tracking also requires an actively
             // held key (any key once the head's key is released), same as stable.
             ordered[index] = (eventTime, ordered[index].Score, active && held);
+            Sample(eventTime, active && held);
         }
+
+        if (!lazer || tailIndex < 0 || tailForced)
+            return;
+
+        // Keep following the ball to the slider's end so tracking late in the window still counts.
+        var endTime = Math.Round(end);
+        while (frameIndex < frames.Count && frames[frameIndex].TimeMs <= endTime)
+        {
+            var frame = frames[frameIndex++];
+            active = FollowPosition(active, (frame.X, frame.Y), BallAt(item, rate, frame.TimeMs), radius);
+            Sample(frame.TimeMs, active && CursorTrack.Held(frame));
+        }
+
+        ordered[tailIndex] = (ordered[tailIndex].Time, ordered[tailIndex].Score, trackedInTailWindow);
     }
+
+    private static double Distance((double X, double Y) first, (double X, double Y) second) =>
+        Math.Sqrt(Math.Pow(first.X - second.X, 2) + Math.Pow(first.Y - second.Y, 2));
 
     private static bool FollowState(bool active, bool held, (double X, double Y) cursor, (double X, double Y) target, double expandedRadius)
     {

@@ -14,7 +14,9 @@ import {
 import { sidecarRequest } from './sidecar';
 import { useEditorStore } from './stores/editor';
 import { APP_VERSION } from './appMeta';
+import { UpdateDiagnostics } from './UpdateDiagnostics';
 import type { UpdateCheckResult } from './hooks/useAutoUpdater';
+import { Spinner } from './components/common/Loading';
 
 type AccountSettings = { rememberSession: boolean; storageDirectory: string };
 type CategoryId =
@@ -150,6 +152,8 @@ export function SettingsDialog({
   const setShowBackground = useEditorStore((state) => state.setShowBackground);
   const backgroundDim = useEditorStore((state) => state.backgroundDim);
   const setBackgroundDim = useEditorStore((state) => state.setBackgroundDim);
+  const cursorSize = useEditorStore((state) => state.cursorSize);
+  const setCursorSize = useEditorStore((state) => state.setCursorSize);
   const showGrid = useEditorStore((state) => state.showGrid);
   const setShowGrid = useEditorStore((state) => state.setShowGrid);
   const compactMode = useEditorStore((state) => state.compactMode);
@@ -158,6 +162,7 @@ export function SettingsDialog({
   const fadeAfterClick = useEditorStore((state) => state.fadeAfterClick);
   const showHitJudgements = useEditorStore((state) => state.showHitJudgements);
   const showHiddenFade = useEditorStore((state) => state.showHiddenFade);
+  const showSliderEndWindows = useEditorStore((state) => state.showSliderEndWindows);
   const setGameplayFilter = useEditorStore((state) => state.setGameplayFilter);
   const cursorTrailMs = useEditorStore((state) => state.cursorTrailMs);
   const setCursorTrailMs = useEditorStore((state) => state.setCursorTrailMs);
@@ -266,13 +271,17 @@ export function SettingsDialog({
                       <div>
                         <strong>Version {APP_VERSION}</strong>
                         <small>
-                          {updateCheckResult === 'checking'
-                            ? 'Checking for updates…'
-                            : updateCheckResult === 'up-to-date'
-                              ? "You're on the latest version."
-                              : updateCheckResult === 'error'
-                                ? 'Could not check for updates.'
-                                : 'Check GitHub for a newer signed build.'}
+                          {updateCheckResult === 'checking' ? (
+                            <>
+                              <Spinner size={9} /> Checking for updates
+                            </>
+                          ) : updateCheckResult === 'up-to-date' ? (
+                            "You're on the latest version."
+                          ) : updateCheckResult === 'error' ? (
+                            'Could not check for updates.'
+                          ) : (
+                            'Check GitHub for a newer signed build.'
+                          )}
                         </small>
                       </div>
                       <button
@@ -290,6 +299,7 @@ export function SettingsDialog({
                       </div>
                       <button onClick={onOpenChangelog}>View changelog</button>
                     </div>
+                    {import.meta.env.DEV && <UpdateDiagnostics />}
                   </>
                 ) : category.id === 'account' ? (
                   <>
@@ -380,6 +390,19 @@ export function SettingsDialog({
                         <small>Preview early fading and hide approach circles when HD is active.</small>
                       </span>
                     </label>
+                    <label className="setting-check">
+                      <input
+                        type="checkbox"
+                        checked={showSliderEndWindows}
+                        onChange={(event) => setGameplayFilter('showSliderEndWindows', event.target.checked)}
+                      />
+                      <span>
+                        <strong>Show slider end windows</strong>
+                        <small>
+                          Mark where slider ends are judged: one moment on stable, the final stretch on lazer.
+                        </small>
+                      </span>
+                    </label>
                   </div>
                 ) : category.id === 'appearance' ? (
                   <div className="setting-playfield">
@@ -433,6 +456,24 @@ export function SettingsDialog({
                           onChange={(event) => setBackgroundDim(Number(event.target.value))}
                         />
                         <output>{backgroundDim}%</output>
+                      </div>
+                    </label>
+                    <label className="setting-volume">
+                      <span>
+                        <strong>Cursor size</strong>
+                        <small>Size of the replay cursor on the playfield.</small>
+                      </span>
+                      <div>
+                        <input
+                          aria-label="Cursor size"
+                          type="range"
+                          min="50"
+                          max="200"
+                          step="5"
+                          value={cursorSize}
+                          onChange={(event) => setCursorSize(Number(event.target.value))}
+                        />
+                        <output>{cursorSize}%</output>
                       </div>
                     </label>
                     <label className="setting-volume">

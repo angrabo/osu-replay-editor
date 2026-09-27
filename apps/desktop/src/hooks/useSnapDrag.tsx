@@ -38,8 +38,10 @@ const anchors: SnapAnchor[] = [
 export type SnapInsets = { top: number; right: number; bottom: number; left: number };
 
 const GAP = 6;
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 
-type Entry = { anchor: SnapAnchor; width: number; height: number; order: number; line: number };
+// Free-placed widgets register as 'free' so they never join (or push) an anchor group.
+type Entry = { anchor: SnapAnchor | 'free'; width: number; height: number; order: number; line: number };
 type Rect = { x: number; y: number; width: number; height: number };
 
 // Flow layout of every widget docked on one anchor. Each widget belongs to a line: a row along the
@@ -203,15 +205,19 @@ export function SnapZoneProvider({ insets, children }: { insets: SnapInsets; chi
   return <SnapZoneContext.Provider value={{ zone, insets }}>{children}</SnapZoneContext.Provider>;
 }
 
-type Stored = { anchor: SnapAnchor; order: number; line: number };
+// free: position as a fraction of the room left in the pane, so it scales with resizes.
+type Stored = { anchor: SnapAnchor; order: number; line: number; free?: { fx: number; fy: number } };
 
 function readStored(storageKey: string, fallback: SnapAnchor, defaultOrder: number): Stored {
   try {
     const raw = localStorage.getItem(storageKey);
     if (raw) {
       const parsed = (raw.startsWith('{') ? JSON.parse(raw) : { anchor: raw, order: 0 }) as Partial<Stored>;
-      if (parsed.anchor && anchors.includes(parsed.anchor))
-        return { anchor: parsed.anchor, order: Number(parsed.order) || 0, line: Number(parsed.line) || 0 };
+      if (parsed.anchor && anchors.includes(parsed.anchor)) {
+        const free =
+          parsed.free && Number.isFinite(parsed.free.fx) && Number.isFinite(parsed.free.fy) ? parsed.free : undefined;
+        return { anchor: parsed.anchor, order: Number(parsed.order) || 0, line: Number(parsed.line) || 0, free };
+      }
     }
   } catch {
     /* storage unavailable: use the fallback */
@@ -241,7 +247,7 @@ export function useSnapDrag<T extends HTMLElement>(id: string, fallback: SnapAnc
     const element = ref.current;
     if (!element) return;
     zone.set(id, {
-      anchor: stored.anchor,
+      anchor: stored.free ? 'free' : stored.anchor,
       order: stored.order,
       line: stored.line,
       width: element.offsetWidth,
@@ -253,6 +259,11 @@ export function useSnapDrag<T extends HTMLElement>(id: string, fallback: SnapAnc
     const element = ref.current;
     const parent = element?.offsetParent as HTMLElement | null;
     if (!element || !parent) return null;
+    if (stored.free) {
+      const roomX = Math.max(0, parent.clientWidth - element.offsetWidth);
+      const roomY = Math.max(0, parent.clientHeight - element.offsetHeight);
+      return { x: clamp01(stored.free.fx) * roomX, y: clamp01(stored.free.fy) * roomY };
+    }
     const peers = zone.peers(stored.anchor).map(([peerId, entry]) => ({ id: peerId, ...entry }));
     if (!peers.some((peer) => peer.id === id))
       peers.push({ id, ...stored, width: element.offsetWidth, height: element.offsetHeight });
@@ -318,12 +329,25 @@ export function useSnapDrag<T extends HTMLElement>(id: string, fallback: SnapAnc
       if (samples.length > 12) samples.shift();
       setPosition(current);
     };
-    const end = () => {
+    const end = (endEvent: PointerEvent) => {
       handle.removeEventListener('pointermove', move);
       handle.removeEventListener('pointerup', end);
       handle.removeEventListener('pointercancel', end);
       draggingRef.current = false;
       setDragging(false);
+      // Free placement (snapping switched off in Window, or Alt held on release): stay put.
+      if (!useLayoutStore.getState().snapWidgets !== endEvent.altKey) {
+        const roomX = Math.max(1, parent.clientWidth - element.offsetWidth);
+        const roomY = Math.max(1, parent.clientHeight - element.offsetHeight);
+        const next: Stored = { ...stored, free: { fx: clamp01(current.x / roomX), fy: clamp01(current.y / roomY) } };
+        setStored(next);
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(next));
+        } catch {
+          /* storage unavailable: position just won't persist */
+        }
+        return;
+      }
       // Project the release velocity forward so a quick flick carries it to the far anchor.
       // Only a flick counts: movement from the last 100 ms, and nothing if the pointer had stopped.
       const now = performance.now();
@@ -379,7 +403,7 @@ export function useSnapDrag<T extends HTMLElement>(id: string, fallback: SnapAnc
         .peers(best)
         .filter(([peerId]) => peerId !== id)
         .map(([peerId, entry]) => ({ order: entry.order, line: entry.line, rect: zone.rect(peerId) }));
-      const next = { anchor: best, ...dropPlacement(best, drop, peers) };
+      const next: Stored = { anchor: best, ...dropPlacement(best, drop, peers) };
       setSettling(true);
       if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current);
       settleTimerRef.current = window.setTimeout(() => setSettling(false), 450);
@@ -395,7 +419,14 @@ export function useSnapDrag<T extends HTMLElement>(id: string, fallback: SnapAnc
     handle.addEventListener('pointercancel', end);
   };
 
-  const [row, column] = stored.anchor.split('-');
+  // Free widgets still report which side they are on (popovers flip, text aligns accordingly).
+  const [row, column] =
+    stored.free && position
+      ? [
+          stored.free.fy < 0.34 ? 'top' : stored.free.fy > 0.66 ? 'bottom' : 'middle',
+          stored.free.fx < 0.34 ? 'left' : stored.free.fx > 0.66 ? 'right' : 'center',
+        ]
+      : stored.anchor.split('-');
   const className = `${dragging ? ' dragging' : settling ? ' settling' : ''} anchor-${row} anchor-${column}`;
   const style = position
     ? { transform: `translate3d(${position.x}px, ${position.y}px, 0)` }

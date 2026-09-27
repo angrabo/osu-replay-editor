@@ -47,13 +47,70 @@ function persist(hidden: PanelId[]) {
   }
 }
 
+export type FloatablePanelId = 'explorer' | 'tracks' | 'inspector' | 'selection' | 'timeline';
+export type FloatingRect = { x: number; y: number; width: number; height: number };
+
+const floatingStorageKey = 'osu-replay-editor.floating-panels';
+const snapStorageKey = 'osu-replay-editor.snap-widgets';
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : (JSON.parse(raw) as T);
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* storage unavailable: layout just won't persist */
+  }
+}
+
 type LayoutState = {
   hiddenPanels: PanelId[];
+  // Panels popped out of the docked layout into floating windows, with their window rects.
+  floatingPanels: Partial<Record<FloatablePanelId, FloatingRect>>;
+  // When false, playfield widgets stay exactly where they are dropped instead of snapping.
+  snapWidgets: boolean;
   setPanelVisible: (id: PanelId, visible: boolean) => void;
   showAllPanels: () => void;
+  popOutPanel: (id: FloatablePanelId, rect: FloatingRect) => void;
+  setFloatingRect: (id: FloatablePanelId, rect: FloatingRect) => void;
+  dockPanel: (id: FloatablePanelId) => void;
+  setSnapWidgets: (snap: boolean) => void;
 };
 
 export const useLayoutStore = create<LayoutState>((set) => ({
+  floatingPanels: readJson(floatingStorageKey, {}),
+  snapWidgets: readJson<boolean>(snapStorageKey, true) !== false,
+  popOutPanel: (id, rect) =>
+    set((state) => {
+      const floatingPanels = { ...state.floatingPanels, [id]: rect };
+      writeJson(floatingStorageKey, floatingPanels);
+      return { floatingPanels };
+    }),
+  setFloatingRect: (id, rect) =>
+    set((state) => {
+      if (!state.floatingPanels[id]) return {};
+      const floatingPanels = { ...state.floatingPanels, [id]: rect };
+      writeJson(floatingStorageKey, floatingPanels);
+      return { floatingPanels };
+    }),
+  dockPanel: (id) =>
+    set((state) => {
+      const floatingPanels = { ...state.floatingPanels };
+      delete floatingPanels[id];
+      writeJson(floatingStorageKey, floatingPanels);
+      return { floatingPanels };
+    }),
+  setSnapWidgets: (snapWidgets) => {
+    writeJson(snapStorageKey, snapWidgets);
+    set({ snapWidgets });
+  },
   hiddenPanels: readHidden(),
   setPanelVisible: (id, visible) =>
     set((state) => {

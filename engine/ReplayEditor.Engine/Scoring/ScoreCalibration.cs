@@ -214,6 +214,32 @@ public static class ScoreCalibration
         }
     }
 
+    // A failed lazer play (rank F) records how many hit objects were judged before the fail.
+    public static int? RecordedFailedJudgedObjects(SimulationRequest request)
+    {
+        if (request.Version < 30_000_000 || string.IsNullOrWhiteSpace(request.LazerScoreInfo))
+            return null;
+
+        try
+        {
+            var json = ReplayFileReader.TryDecodeLazerScoreInfo(Convert.FromBase64String(request.LazerScoreInfo));
+            if (json is null)
+                return null;
+
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("rank", out var rank) || rank.GetString() != "F" ||
+                !root.TryGetProperty("statistics", out var statistics))
+                return null;
+
+            return Count(statistics, "great") + Count(statistics, "ok") + Count(statistics, "meh") + Count(statistics, "miss");
+        }
+        catch (Exception error) when (error is FormatException or JsonException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
     private static int Count(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.TryGetInt32(out var count) ? count : 0;
 }

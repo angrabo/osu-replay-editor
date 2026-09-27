@@ -4,7 +4,8 @@ namespace ReplayEditor.Simulation.Scoring;
 /// One scorable moment in lazer's combo-portion timeline: a judgement's maximum value
 /// (used for both the "achieved" and "perfect" combo portions) and whether it was hit.
 /// </summary>
-internal sealed record LazerScoreEvent(double Time, int Order, int MaximumValue, bool Hit, bool BreakOnMiss = true);
+// Judged = false: the play ended (failed) before this judgement; it still counts toward the maximums.
+internal sealed record LazerScoreEvent(double Time, int Order, int MaximumValue, bool Hit, bool BreakOnMiss = true, bool Judged = true);
 
 /// <summary>
 /// One scorable moment in a stable ScoreV1/ScoreV2 timeline: its raw point value,

@@ -78,7 +78,8 @@ public sealed class SimulationService(OsuService osu) : ISimulationService
                 request.Mods,
                 request.Version,
                 ct,
-                scoreMultiplier);
+                scoreMultiplier,
+                failAfterJudgedObjects: ScoreCalibration.RecordedFailedJudgedObjects(request));
 
     private static SimulationResult RetryLazerBoundaryRounding(SimulationResult result, SimulationRequest request,
         string beatmapText, double scoreMultiplier, CancellationToken ct)
@@ -93,7 +94,8 @@ public sealed class SimulationService(OsuService osu) : ISimulationService
             request.Version,
             ct,
             scoreMultiplier,
-            lazerInclusiveLateHitWindows: true);
+            lazerInclusiveLateHitWindows: true,
+            failAfterJudgedObjects: ScoreCalibration.RecordedFailedJudgedObjects(request));
 
         return ScoreCalibration.MatchesRecordedAggregates(alternate, request) ? alternate : result;
     }

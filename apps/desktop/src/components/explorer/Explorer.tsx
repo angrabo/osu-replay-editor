@@ -5,6 +5,7 @@ import { TabButton } from '../common/TabButton';
 import { useEditorStore, type BeatmapTimelineObject, type MapInfo, type Track } from '../../stores/editor';
 import type { Resolution } from '../../MapAcquisition';
 import { PanelCloseButton } from '../common/PanelCloseButton';
+import { PanelPopOutButton } from '../common/FloatingPanel';
 
 const OBJECT_PAGE_SIZE = 150;
 const PREVIEW_WINDOW_MS = 150;
@@ -107,6 +108,8 @@ export function Explorer({
   const [pendingRemove, setPendingRemove] = useState<string | null>(null);
   const removeTracks = useEditorStore((state) => state.removeTracks);
   const previewTrack = tracks.find((track) => track.id === previewTrackId);
+  // Map coordinates are stored unflipped; HR mirrors the playfield vertically, like the replay frames.
+  const hardRock = ((previewTrack?.exportMetadata.mods ?? 0) & 16) !== 0;
 
   useEffect(() => setVisibleObjectCount(OBJECT_PAGE_SIZE), [beatmapObjects]);
 
@@ -157,7 +160,8 @@ export function Explorer({
         <TabButton active={tab === 'replay'} onClick={() => setTab('replay')}>
           Replays
         </TabButton>
-        <PanelCloseButton panel="explorer" className="in-tabs" />
+        <PanelPopOutButton panel="explorer" className="in-tabs" />
+        <PanelCloseButton panel="explorer" className="in-tabs tight" />
       </div>
       <label className="search-box">
         <Search size={14} />
@@ -301,7 +305,7 @@ export function Explorer({
                   ) : (
                     <circle
                       cx={object.x}
-                      cy={object.y}
+                      cy={hardRock ? 384 - object.y : object.y}
                       r={28}
                       fill={object.kind === 'slider' ? 'rgba(185,133,245,0.25)' : 'rgba(90,160,255,0.25)'}
                       stroke={object.kind === 'slider' ? '#b985f5' : '#5aa0ff'}

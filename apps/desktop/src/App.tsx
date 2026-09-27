@@ -16,7 +16,8 @@ import { Inspector } from './components/inspector/Inspector';
 import { SelectionPanel } from './components/selection/SelectionPanel';
 import { usePanelResize } from './hooks/usePanelResize';
 import { useSelectionHeight } from './hooks/useSelectionHeight';
-import { useLayoutStore, type PanelId } from './stores/layout';
+import { useLayoutStore, type FloatablePanelId, type PanelId } from './stores/layout';
+import { FloatingPanel } from './components/common/FloatingPanel';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAutoUpdater } from './hooks/useAutoUpdater';
 import { formatTime, useEditorStore, type EditorState } from './stores/editor';
@@ -33,12 +34,14 @@ const PROJECT_VIEW_KEYS: (keyof ProjectView)[] = [
   'volume',
   'showBackground',
   'backgroundDim',
+  'cursorSize',
   'showGrid',
   'compactMode',
   'wireframeGameplay',
   'fadeAfterClick',
   'showHitJudgements',
   'showHiddenFade',
+  'showSliderEndWindows',
   'playfieldZoom',
   'cursorTrailMs',
   'showCursorPast',
@@ -63,7 +66,10 @@ export default function App() {
   const playhead = useEditorStore((state) => state.playheadMs);
   const { selectionHeight, beginSelectionResize } = useSelectionHeight();
   const hiddenPanels = useLayoutStore((state) => state.hiddenPanels);
-  const shown = (panel: PanelId) => !hiddenPanels.includes(panel);
+  const floatingPanels = useLayoutStore((state) => state.floatingPanels);
+  const visible = (panel: PanelId) => !hiddenPanels.includes(panel);
+  // Docked in the grid: visible and not popped out into a floating window.
+  const shown = (panel: PanelId) => visible(panel) && !floatingPanels[panel as FloatablePanelId];
   const durationMs = useEditorStore((state) => state.durationMs);
   const playing = useEditorStore((state) => state.playing);
   const playbackRate = useEditorStore((state) => state.playbackRate);
@@ -261,7 +267,8 @@ export default function App() {
       });
   };
   useKeyboardShortcuts({ openAcquisition, setSettingsOpen, undo, redo, setPlaying });
-  const { pendingUpdate, installing, installError, install, dismiss, checkNow, checkResult } = useAutoUpdater();
+  const { pendingUpdate, installing, installError, progress, install, dismiss, checkNow, checkResult } =
+    useAutoUpdater();
 
   const layoutStyle = {
     '--left-width': `${leftWidth}px`,
@@ -399,6 +406,25 @@ export default function App() {
           </>
         )}
       </main>
+      {(Object.keys(floatingPanels) as FloatablePanelId[])
+        .filter((panel) => visible(panel))
+        .map((panel) => (
+          <FloatingPanel panel={panel} key={panel}>
+            {panel === 'explorer' ? (
+              <Explorer resolution={resolution} onSelectReplayTrack={handleLoadReplayGroup} />
+            ) : panel === 'tracks' ? (
+              <TrackList onImport={() => openAcquisition('open')} />
+            ) : panel === 'inspector' ? (
+              <Inspector />
+            ) : panel === 'selection' ? (
+              <SelectionPanel />
+            ) : (
+              <section className="panel timeline-panel">
+                <Timeline resolution={resolution} />
+              </section>
+            )}
+          </FloatingPanel>
+        ))}
       <footer className="status-bar">
         <span>
           {sidecar === 'ready' ? (
@@ -451,6 +477,7 @@ export default function App() {
           update={pendingUpdate}
           installing={installing}
           installError={installError}
+          progress={progress}
           onInstall={install}
           onDismiss={dismiss}
         />

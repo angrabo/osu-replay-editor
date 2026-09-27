@@ -45,9 +45,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Env vars at this point only exist for this CI job — they never reach the installed app on
-      # an end user's machine. Bake the real client id/secret into the compiled sidecar instead,
-      # so a released build works without the user setting anything up.
       - name: Bake osu! client credentials into the sidecar
         shell: pwsh
         env:
@@ -130,9 +127,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PORTABLE_ZIP: ${{ steps.portable.outputs.zip }}
 
-      # tauri-action's built-in includeUpdaterJson doesn't reliably emit latest.json for the
-      # NSIS target (it looks for a *.nsis.zip.sig, but Tauri 2 signs the setup.exe directly) —
-      # build and upload it ourselves from the artifacts that actually exist.
       - name: Build and upload latest.json
         shell: pwsh
         env:
@@ -146,7 +140,12 @@ jobs:
           $signature = Get-Content -LiteralPath $sigPath -Raw
           $tag = $env:RELEASE_TAG
           $version = $tag.TrimStart('v')
-          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/$tag/$([Uri]::EscapeDataString($installer.Name))"
+          # GitHub renames uploaded assets (spaces become dots, "!" is dropped), so take the URL of
+          # the installer asset that actually exists instead of rebuilding it from the local name.
+          $assets = gh release view $tag --repo ${{ github.repository }} --json assets | ConvertFrom-Json
+          $asset = $assets.assets | Where-Object { $_.name -like '*_x64-setup.exe' } | Select-Object -First 1
+          if (-not $asset) { throw "No *_x64-setup.exe asset found on release $tag" }
+          $downloadUrl = $asset.url
           $manifest = @{
             version = $version
             notes = "See the release notes on GitHub."

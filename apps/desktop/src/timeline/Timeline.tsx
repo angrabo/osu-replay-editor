@@ -25,8 +25,10 @@ import { TimelineInputNode, type TimelineInputItem } from './TimelineInputNode';
 import { useTimelineCanvas, lanes, rulerHeight, rulerStepsMs, numericColor } from './useTimelineCanvas';
 import { useInputDrag } from './useInputDrag';
 import { useLaneResize } from './useLaneResize';
+import { HitObjectTooltip } from './HitObjectHover';
 import type { Resolution } from '../MapAcquisition';
 import { PanelCloseButton } from '../components/common/PanelCloseButton';
+import { PanelPopOutButton } from '../components/common/FloatingPanel';
 
 const inputKeyNames: InputKey[] = ['M1', 'M2', 'K1', 'K2'];
 
@@ -62,6 +64,9 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
     trackName: string;
   } | null>(null);
   const [bladePreview, setBladePreview] = useState<{ timeMs: number; lane: number } | null>(null);
+  const [objectHover, setObjectHover] = useState<{ x: number; y: number; index: number } | null>(null);
+  const hitWindows = useEditorStore((state) => state.hitWindows);
+  const previewTrackId = useEditorStore((state) => state.previewTrackId);
   const [contextMenu, setContextMenu] = useState<TimelineContextMenuState | null>(null);
   const tracks = useEditorStore((state) => state.tracks);
   const simulation = useEditorStore((state) =>
@@ -142,6 +147,23 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
     const snapRangeMs = (12 * 1000) / pixelsPerSecond;
     return snapTimeWithinRange(time, candidates, snapRangeMs);
   };
+
+  const objectIndexAtTime = (time: number): number | null => {
+    const toleranceMs = (10 * 1000) / pixelsPerSecond;
+    let match: number | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    beatmapObjects.forEach((object, index) => {
+      if (time < object.startTime - toleranceMs || time > object.endTime + toleranceMs) return;
+      const distance = Math.min(Math.abs(time - object.startTime), Math.abs(time - object.endTime));
+      if (distance < bestDistance) {
+        match = index;
+        bestDistance = distance;
+      }
+    });
+    return match;
+  };
+  const judgementFor = (index: number | null) =>
+    index === null ? null : (simulation?.judgements.find((judgement) => judgement.objectIndex === index) ?? null);
 
   const { hostRef, width } = useTimelineCanvas({
     timelineHeight,
@@ -418,7 +440,8 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
             >
               Follow
             </button>
-            <PanelCloseButton panel="timeline" />
+            <PanelPopOutButton panel="timeline" />
+            <PanelCloseButton panel="timeline" className="tight" />
           </div>
           {lanes.map((lane, index) => (
             <div
@@ -457,21 +480,8 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
               localY >= laneTop(0) &&
               localY <= laneTop(0) + laneHeights[0]
             ) {
-              const toleranceMs = (10 * 1000) / pixelsPerSecond;
-              let match = -1;
-              let bestDistance = Number.POSITIVE_INFINITY;
-              beatmapObjects.forEach((object, index) => {
-                const inside =
-                  clickedTime >= object.startTime - toleranceMs && clickedTime <= object.endTime + toleranceMs;
-                const distance = inside
-                  ? Math.min(Math.abs(clickedTime - object.startTime), Math.abs(clickedTime - object.endTime))
-                  : Number.POSITIVE_INFINITY;
-                if (inside && distance < bestDistance) {
-                  match = index;
-                  bestDistance = distance;
-                }
-              });
-              if (match >= 0) {
+              const match = objectIndexAtTime(clickedTime);
+              if (match !== null) {
                 selectBeatmapObject(match);
                 setPlayhead(beatmapObjects[match].startTime);
                 return;
@@ -567,6 +577,25 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
                 lane >= 0 ? { timeMs: start + ((event.clientX - box.left) * 1000) / pixelsPerSecond, lane } : null,
               );
             } else if (bladePreview) setBladePreview(null);
+            {
+              const box = event.currentTarget.getBoundingClientRect();
+              const localY = event.clientY - box.top;
+              const index =
+                timelineTool === 'select' &&
+                !dragRef.current &&
+                localY >= laneTop(0) &&
+                localY <= laneTop(0) + laneHeights[0]
+                  ? objectIndexAtTime(start + ((event.clientX - box.left) * 1000) / pixelsPerSecond)
+                  : null;
+              if (index === null) {
+                if (objectHover) setObjectHover(null);
+              } else
+                setObjectHover({
+                  index,
+                  x: Math.max(6, Math.min(box.width - 236, event.clientX - box.left + 14)),
+                  y: laneTop(0) + laneHeights[0] + 6,
+                });
+            }
             const drag = dragRef.current;
             if (!drag) return;
             const dx = event.clientX - drag.x;
@@ -658,6 +687,7 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
           onPointerLeave={() => {
             setBladePreview(null);
             setInputHoverTooltip(null);
+            setObjectHover(null);
           }}
           onContextMenu={(event) => {
             event.preventDefault();
@@ -765,6 +795,59 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
               }}
             />
           )}
+          {(() => {
+            // Selected object: link it to the press that judged it (simulation of the previewed replay).
+            const judgement = judgementFor(selectedBeatmapObjectIndex);
+            const object = selectedBeatmapObjectIndex === null ? null : beatmapObjects[selectedBeatmapObjectIndex];
+            if (!object || !judgement || judgement.hitTime == null) return null;
+            const hitTime = judgement.hitTime;
+            const candidates = inputItems.filter(
+              (item) =>
+                item.track.id === previewTrackId &&
+                (!judgement.key || item.original.key === judgement.key) &&
+                item.original.startTime <= hitTime + 1 &&
+                item.original.endTime >= hitTime - 1,
+            );
+            const input = candidates.sort(
+              (first, second) =>
+                Math.abs(first.original.startTime - hitTime) - Math.abs(second.original.startTime - hitTime),
+            )[0];
+            const laneMid = laneTop(0) + laneHeights[0] / 2;
+            const objectX = xForTime(object.startTime);
+            const hitX = xForTime(hitTime);
+            const colour = { '300': '#7fc0ff', '100': '#59d98e', '50': '#f29a4a', miss: '#ff6575' }[judgement.result];
+            return (
+              <div className="timeline-hit-link" style={{ ['--hit-colour' as string]: colour }}>
+                <i
+                  className="hit-link-offset"
+                  style={{
+                    left: Math.min(objectX, hitX),
+                    width: Math.max(1, Math.abs(hitX - objectX)),
+                    top: laneMid - 1,
+                  }}
+                />
+                {input && (
+                  <>
+                    <i className="hit-link-drop" style={{ left: hitX, top: laneMid, height: input.top - laneMid }} />
+                    <i
+                      className="hit-link-input"
+                      style={{
+                        left: input.left - 2,
+                        top: input.top - 2,
+                        width: input.width + 4,
+                        height: input.height + 4,
+                      }}
+                    />
+                  </>
+                )}
+                <span className="hit-link-label" style={{ left: hitX + 5, top: laneMid - laneHeights[0] / 2 + 2 }}>
+                  {judgement.key ?? ''}{' '}
+                  {judgement.hitError != null &&
+                    `${judgement.hitError > 0 ? '+' : ''}${Math.round(judgement.hitError)} ms`}
+                </span>
+              </div>
+            );
+          })()}
           {marquee && (
             <div
               className="timeline-marquee"
@@ -836,6 +919,16 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
               </span>
               <span>Length {inputHoverTooltip.input.endTime - inputHoverTooltip.input.startTime} ms</span>
             </div>
+          )}
+          {objectHover && !marquee && beatmapObjects[objectHover.index] && (
+            <HitObjectTooltip
+              object={beatmapObjects[objectHover.index]}
+              index={objectHover.index}
+              judgement={judgementFor(objectHover.index)}
+              windows={hitWindows}
+              x={objectHover.x}
+              y={objectHover.y}
+            />
           )}
           {contextMenu && (
             <TimelineContextMenu
