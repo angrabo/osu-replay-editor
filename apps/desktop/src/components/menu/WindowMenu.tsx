@@ -1,9 +1,10 @@
 import { panelLabels, useLayoutStore, type FloatablePanelId, type PanelId } from '../../stores/layout';
+import { useTextWidgetStore } from '../../stores/textWidgets';
 
 const docked: PanelId[] = ['explorer', 'tracks', 'inspector', 'selection', 'timeline'];
 const floating: PanelId[] = ['quickbar', 'toolOptions', 'stats', 'viewControls', 'simulation', 'previewBadge'];
 
-export function WindowMenu() {
+export function WindowMenu({ onClose }: { onClose: () => void }) {
   const hiddenPanels = useLayoutStore((state) => state.hiddenPanels);
   const setPanelVisible = useLayoutStore((state) => state.setPanelVisible);
   const showAllPanels = useLayoutStore((state) => state.showAllPanels);
@@ -31,6 +32,15 @@ export function WindowMenu() {
       {docked.map(item)}
       <div className="menu-separator" />
       {floating.map(item)}
+      <button
+        role="menuitem"
+        onClick={() => {
+          useTextWidgetStore.getState().add();
+          onClose();
+        }}
+      >
+        + Add text panel
+      </button>
       <div className="menu-separator" />
       <button
         role="menuitemcheckbox"

@@ -147,7 +147,12 @@ export function analyseMisses(input: {
   return entries.sort((a, b) => a.time - b.time);
 }
 
-/// Miss causes for the previewed replay, recomputed when its simulation or inputs change.
+// One analysis shared by every component that shows it (timeline, Explorer, details), keyed on
+// its exact inputs.
+let cached: { inputs: unknown[]; result: MissEntry[] | null } | null = null;
+
+/// Miss causes for the previewed replay, recomputed when its simulation or inputs change. During a
+/// brush stroke or node drag the last analysis stands; it catches up when the edit ends.
 export function useMissAnalysis(): MissEntry[] | null {
   const track = useEditorStore((state) => state.tracks.find((item) => item.id === state.previewTrackId) ?? null);
   const simulation = useEditorStore((state) =>
@@ -157,17 +162,34 @@ export function useMissAnalysis(): MissEntry[] | null {
   const windows = useEditorStore((state) => state.hitWindows);
   const radius = useEditorStore((state) => state.circleRadius);
   const sliderBreaks = useEditorStore((state) => state.sliderBreaks);
+  const liveEdit = useEditorStore((state) => state.liveEdit);
   return useMemo(() => {
-    if (!track || !simulation || !windows || radius === null) return null;
-    return analyseMisses({
+    const inputs = [
+      track?.id,
+      track?.replay,
+      track?.exportMetadata.mods,
+      simulation,
       objects,
-      judgements: simulation.judgements,
-      frames: track.replay.frames,
-      keyEvents: track.replay.keyEvents,
       windows,
       radius,
-      hardRock: (track.exportMetadata.mods & 16) !== 0,
       sliderBreaks,
-    });
-  }, [track, simulation, objects, windows, radius, sliderBreaks]);
+    ];
+    if (liveEdit && cached) return cached.result;
+    if (cached && cached.inputs.every((input, index) => input === inputs[index])) return cached.result;
+    const result =
+      !track || !simulation || !windows || radius === null
+        ? null
+        : analyseMisses({
+            objects,
+            judgements: simulation.judgements,
+            frames: track.replay.frames,
+            keyEvents: track.replay.keyEvents,
+            windows,
+            radius,
+            hardRock: (track.exportMetadata.mods & 16) !== 0,
+            sliderBreaks,
+          });
+    cached = { inputs, result };
+    return result;
+  }, [track, simulation, objects, windows, radius, sliderBreaks, liveEdit]);
 }

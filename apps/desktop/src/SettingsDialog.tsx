@@ -3,6 +3,7 @@ import {
   Clock3,
   FolderOpen,
   Keyboard,
+  Music,
   Palette,
   Play,
   Search,
@@ -18,12 +19,22 @@ import { UpdateDiagnostics } from './UpdateDiagnostics';
 import type { UpdateCheckResult } from './hooks/useAutoUpdater';
 import { Spinner } from './components/common/Loading';
 import { KeybindSettings } from './components/settings/KeybindSettings';
+import { SkinSettings } from './components/settings/SkinSettings';
 import { InfoTip } from './components/InfoTip';
 import { clearRecentFiles, readRecentFiles } from './recentFiles';
 
 type AccountSettings = { rememberSession: boolean; storageDirectory: string };
 type CategoryId =
-  'general' | 'account' | 'playback' | 'timeline' | 'appearance' | 'filters' | 'files' | 'shortcuts' | 'advanced';
+  | 'general'
+  | 'account'
+  | 'playback'
+  | 'timeline'
+  | 'appearance'
+  | 'skin'
+  | 'filters'
+  | 'files'
+  | 'shortcuts'
+  | 'advanced';
 type Category = {
   id: CategoryId;
   label: string;
@@ -77,6 +88,16 @@ const categories: Category[] = [
     keywords:
       'theme colors ui scale interface playfield background dim brightness grid cursor trail history compact ticks click markers',
     items: [{ title: 'Playfield display', description: 'Background, grid, compact mode and cursor history.' }],
+  },
+  {
+    id: 'skin',
+    label: 'Skin & sounds',
+    icon: <Music size={17} />,
+    keywords: 'skin osu stable folder hitsounds hitsound samples volume sounds audio',
+    items: [
+      { title: 'osu! skin', description: 'Skin from your osu! (stable) installation.' },
+      { title: 'Hitsounds', description: 'Play hitsounds during playback and set their volume.' },
+    ],
   },
   {
     id: 'filters',
@@ -140,6 +161,10 @@ export function SettingsDialog({
   const showGrid = useEditorStore((state) => state.showGrid);
   const setShowGrid = useEditorStore((state) => state.setShowGrid);
   const compactMode = useEditorStore((state) => state.compactMode);
+  const hideCollectedTicks = useEditorStore((state) => state.hideCollectedTicks);
+  const snakingSliders = useEditorStore((state) => state.snakingSliders);
+  const snakingOutSliders = useEditorStore((state) => state.snakingOutSliders);
+  const setSliderDisplay = useEditorStore((state) => state.setSliderDisplay);
   const setCompactMode = useEditorStore((state) => state.setCompactMode);
   const wireframeGameplay = useEditorStore((state) => state.wireframeGameplay);
   const fadeAfterClick = useEditorStore((state) => state.fadeAfterClick);
@@ -375,6 +400,8 @@ export function SettingsDialog({
                       onChange={(value) => setGameplayFilter('showSliderEndWindows', value)}
                     />
                   </div>
+                ) : category.id === 'skin' ? (
+                  <SkinSettings />
                 ) : category.id === 'appearance' ? (
                   <div className="setting-list">
                     <ToggleRow
@@ -399,6 +426,24 @@ export function SettingsDialog({
                       info="Draw the 512×384 editor grid and boundary."
                       checked={showGrid}
                       onChange={setShowGrid}
+                    />
+                    <ToggleRow
+                      title="Snaking sliders"
+                      info="Slider bodies grow out of the head as they fade in, like in osu!."
+                      checked={snakingSliders}
+                      onChange={(value) => setSliderDisplay('snakingSliders', value)}
+                    />
+                    <ToggleRow
+                      title="Shrink sliders behind the ball"
+                      info="On the last pass the body disappears behind the slider ball (snaking out)."
+                      checked={snakingOutSliders}
+                      onChange={(value) => setSliderDisplay('snakingOutSliders', value)}
+                    />
+                    <ToggleRow
+                      title="Hide collected slider ticks"
+                      info="A tick disappears once the ball has passed it; off keeps every tick visible."
+                      checked={hideCollectedTicks}
+                      onChange={(value) => setSliderDisplay('hideCollectedTicks', value)}
                     />
                     <ToggleRow
                       title="Compact mode"

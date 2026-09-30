@@ -211,7 +211,11 @@ export function Explorer({
                     onMouseEnter={(event) => {
                       if (!row.object) return;
                       const box = event.currentTarget.getBoundingClientRect();
-                      setHover({ object: row.object, top: box.top, left: box.right + 8 });
+                      setHover({
+                        object: row.object,
+                        top: Math.min(box.top, window.innerHeight - 160),
+                        left: Math.min(box.right + 8, window.innerWidth - 158),
+                      });
                     }}
                     onMouseLeave={() => setHover(null)}
                   >

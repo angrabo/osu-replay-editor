@@ -32,6 +32,7 @@ export type KeyActionId =
   | 'next-combo-break'
   | 'previous-combo-break'
   | 'add-marker'
+  | 'toggle-fullscreen'
   | 'next-marker'
   | 'previous-marker'
   | 'tool-move-frames'
@@ -84,6 +85,7 @@ export const keyActions: KeyAction[] = [
     defaults: ['Shift+KeyC'],
   },
   { id: 'add-marker', label: 'Add marker at playhead', group: 'Markers', scope: 'global', defaults: ['KeyM'] },
+  { id: 'toggle-fullscreen', label: 'Fullscreen playfield', group: 'Playback', scope: 'global', defaults: ['KeyF'] },
   { id: 'next-marker', label: 'Next marker', group: 'Markers', scope: 'global', defaults: ['Alt+ArrowRight'] },
   { id: 'previous-marker', label: 'Previous marker', group: 'Markers', scope: 'global', defaults: ['Alt+ArrowLeft'] },
   {

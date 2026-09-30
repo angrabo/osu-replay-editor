@@ -12,6 +12,7 @@ export type ProjectView = Pick<
   EditorState,
   | 'playbackRate'
   | 'volume'
+  | 'musicVolume'
   | 'showBackground'
   | 'backgroundDim'
   | 'cursorSize'

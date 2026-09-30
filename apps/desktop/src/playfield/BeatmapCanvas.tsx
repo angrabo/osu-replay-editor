@@ -10,12 +10,16 @@ import {
   type BeatmapViewerAdapter,
   type ParsedBeatmap,
   type PlayfieldTransform,
+  type SliderBreak,
 } from '@ore/beatmap-viewer';
 import { Minus, Plus, RotateCcw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Resolution } from '../MapAcquisition';
 import { sidecarBlobRequest } from '../sidecar';
 import { releaseExportViewer, setExportViewer } from './exportTarget';
+import { useHitsounds } from '../audio/useHitsounds';
+import { useSkinStore } from '../stores/skin';
+import { loadViewerSkin } from '../skin/viewerSkin';
 import {
   adjacentReplayFrameTime,
   hitWindowsForOd,
@@ -25,6 +29,7 @@ import {
   type ReplayFrame,
 } from '../stores/editor';
 import { SnapWidget } from '../hooks/useSnapDrag';
+import { lowerBound } from '../timeline/useTimelineCanvas';
 import { StepNumberInput } from '../components/common/StepNumberInput';
 import { Skeleton, Spinner } from '../components/common/Loading';
 
@@ -50,6 +55,17 @@ Combo2:255,100,160
 400,105,2700,1,0,0:0:0:0:
 256,192,3400,8,0,4900
 `;
+
+// HR-mirrored copies of ghost replays, kept per frames array so an edit elsewhere doesn't redo them.
+const mirroredFrames = new WeakMap<readonly ReplayFrame[], ReplayFrame[]>();
+function mirrorFrames(frames: readonly ReplayFrame[]): ReplayFrame[] {
+  let mirrored = mirroredFrames.get(frames);
+  if (!mirrored) {
+    mirrored = frames.map((frame) => ({ ...frame, y: 384 - frame.y }));
+    mirroredFrames.set(frames, mirrored);
+  }
+  return mirrored;
+}
 
 async function loadOptional(hash: string, filename: string | null): Promise<string | null> {
   if (!filename) return null;
@@ -95,6 +111,27 @@ export function BeatmapCanvas({
     snapEnd: { x: number; y: number } | null;
   } | null>(null);
   const brushDragRef = useRef<{ pointerId: number; trackId: string; x: number; y: number } | null>(null);
+  // Brush dabs and node drags are applied at most once per animation frame: pointer events can
+  // arrive far faster, and each edit re-renders everything that shows the replay.
+  const pendingEditRef = useRef<(() => void) | null>(null);
+  const editFrameRef = useRef<number | null>(null);
+  const flushEdit = () => {
+    if (editFrameRef.current !== null) cancelAnimationFrame(editFrameRef.current);
+    editFrameRef.current = null;
+    const run = pendingEditRef.current;
+    pendingEditRef.current = null;
+    run?.();
+  };
+  const queueEdit = (run: () => void) => {
+    pendingEditRef.current = run;
+    editFrameRef.current ??= requestAnimationFrame(flushEdit);
+  };
+  useEffect(
+    () => () => {
+      if (editFrameRef.current !== null) cancelAnimationFrame(editFrameRef.current);
+    },
+    [],
+  );
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [hostSize, setHostSize] = useState({ width: 0, height: 0 });
   const [viewTransform, setViewTransform] = useState<PlayfieldTransform | null>(null);
@@ -109,11 +146,15 @@ export function BeatmapCanvas({
   const playhead = useEditorStore((state) => state.playheadMs);
   const rate = useEditorStore((state) => state.playbackRate);
   const volume = useEditorStore((state) => state.volume);
+  const musicVolume = useEditorStore((state) => state.musicVolume);
   const showBackground = useEditorStore((state) => state.showBackground);
   const backgroundDim = useEditorStore((state) => state.backgroundDim);
   const cursorSize = useEditorStore((state) => state.cursorSize);
   const showGrid = useEditorStore((state) => state.showGrid);
   const compactMode = useEditorStore((state) => state.compactMode);
+  const hideCollectedTicks = useEditorStore((state) => state.hideCollectedTicks);
+  const snakingSliders = useEditorStore((state) => state.snakingSliders);
+  const snakingOutSliders = useEditorStore((state) => state.snakingOutSliders);
   const wireframeGameplay = useEditorStore((state) => state.wireframeGameplay);
   const fadeAfterClick = useEditorStore((state) => state.fadeAfterClick);
   const showHitJudgements = useEditorStore((state) => state.showHitJudgements);
@@ -152,6 +193,11 @@ export function BeatmapCanvas({
     const id = trackId === undefined ? state.previewTrackId : trackId;
     return id ? state.simulationByTrack[id]?.result : null;
   });
+  const simulationStale = useEditorStore((state) => {
+    const id = trackId === undefined ? state.previewTrackId : trackId;
+    const run = id ? state.simulationByTrack[id] : undefined;
+    return !!run && (!!run.stale || run.status === 'running');
+  });
   const displayedReplay = previewTrack ? (original ? previewTrack.originalReplay : previewTrack.replay) : null;
   const previewMods = previewTrack
     ? original
@@ -180,6 +226,8 @@ export function BeatmapCanvas({
   const dragCursorNodes = useEditorStore((state) => state.dragCursorNodes);
   const beginBrushStroke = useEditorStore((state) => state.beginBrushStroke);
   const applyBrushDab = useEditorStore((state) => state.applyBrushDab);
+  const liveEdit = useEditorStore((state) => state.liveEdit);
+  const setLiveEdit = useEditorStore((state) => state.setLiveEdit);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -227,14 +275,58 @@ export function BeatmapCanvas({
           const store = useEditorStore.getState();
           store.setDuration(beatmap.durationMs);
           store.setPlayhead(0);
+          let timingIndex = 0;
+          let bpm: number | null = null;
+          let sliderVelocity = 1;
+          let sampleSet = beatmap.defaultSampleSet;
+          let sampleVolume = 100;
           store.setBeatmapObjects(
-            beatmap.hitObjects.map((object) => ({
-              startTime: object.startTime,
-              endTime: object.endTime,
-              kind: object.kind,
-              x: object.x,
-              y: object.y,
-            })),
+            beatmap.hitObjects.map((object) => {
+              while (
+                timingIndex < beatmap.timingPoints.length &&
+                beatmap.timingPoints[timingIndex].time <= object.startTime
+              ) {
+                const point = beatmap.timingPoints[timingIndex++];
+                if (point.uninherited && point.beatLength > 0) {
+                  bpm = 60000 / point.beatLength;
+                  sliderVelocity = 1;
+                } else if (!point.uninherited && point.beatLength < 0)
+                  sliderVelocity = Math.max(0.1, Math.min(10, -100 / point.beatLength));
+                sampleSet = point.sampleSet;
+                sampleVolume = point.volume;
+              }
+              return {
+                startTime: object.startTime,
+                endTime: object.endTime,
+                kind: object.kind,
+                x: object.x,
+                y: object.y,
+                newCombo: object.newCombo,
+                comboIndex: object.comboIndex,
+                comboNumber: object.comboNumber,
+                hitSound: object.hitSound,
+                hitSample: object.hitSample,
+                slider:
+                  object.kind === 'slider'
+                    ? {
+                        curveType: object.curveType,
+                        path: object.path,
+                        repeats: object.repeats,
+                        pixelLength: object.pixelLength,
+                        spanDuration: object.spanDuration,
+                        tickDistance: object.tickDistance,
+                        edgeSounds: object.edgeSounds,
+                        edgeSets: object.edgeSets,
+                      }
+                    : undefined,
+                timing: {
+                  bpm,
+                  sliderVelocity,
+                  sampleSet,
+                  volume: sampleVolume,
+                },
+              };
+            }),
           );
           store.setWindowStart(
             useEditorStore.getState().tracks.reduce(
@@ -273,7 +365,7 @@ export function BeatmapCanvas({
       setBaseBeatmap(parsedBeatmap);
       viewer.setReplay(null);
       viewer.setRate(useEditorStore.getState().playbackRate);
-      viewer.setVolume(clock ? useEditorStore.getState().volume : 0);
+      viewer.setVolume(clock ? (useEditorStore.getState().volume * useEditorStore.getState().musicVolume) / 100 : 0);
       const settings = useEditorStore.getState();
       viewer.setOptions({
         showCursorTrail: settings.cursorTrailMs > 0,
@@ -290,6 +382,9 @@ export function BeatmapCanvas({
         cursorSize: settings.cursorSize,
         showGrid: settings.showGrid,
         compactMode: settings.compactMode,
+        hideCollectedTicks: settings.hideCollectedTicks,
+        snakingSliders: settings.snakingSliders,
+        snakingOutSliders: settings.snakingOutSliders,
         wireframeGameplay: settings.wireframeGameplay,
         fadeAfterClick: settings.fadeAfterClick,
         showHitJudgements: settings.showHitJudgements,
@@ -353,8 +448,8 @@ export function BeatmapCanvas({
     if (ready) viewerRef.current?.setRate(rate);
   }, [rate, ready]);
   useEffect(() => {
-    if (ready) viewerRef.current?.setVolume(clock ? volume : 0);
-  }, [volume, ready, clock]);
+    if (ready) viewerRef.current?.setVolume(clock ? (volume * musicVolume) / 100 : 0);
+  }, [volume, musicVolume, ready, clock]);
   useEffect(() => {
     if (ready) viewerRef.current?.setMods(previewMods);
   }, [previewMods, ready]);
@@ -369,19 +464,54 @@ export function BeatmapCanvas({
   const replayClient = previewTrack && previewTrack.exportMetadata.version >= 30000000 ? 'lazer' : 'stable';
   const judgedHeadHits = useMemo(() => {
     // Only a whole-replay simulation of this exact replay says when each slider head was hit.
-    if (!simulation || simulation.scope !== 'whole-replay' || (original && previewTrack?.edited)) return undefined;
+    if (!simulation || simulationStale || simulation.scope !== 'whole-replay' || (original && previewTrack?.edited))
+      return undefined;
     return new Map(simulation.judgements.map((judgement) => [judgement.objectIndex, judgement.hitTime]));
-  }, [simulation, original, previewTrack?.edited]);
-  const breaks = useMemo(
-    () =>
+  }, [simulation, simulationStale, original, previewTrack?.edited]);
+  // Checking every slider is the heaviest analysis here; during a stroke or drag the last result
+  // stands and it reruns once the edit ends.
+  const breaksRef = useRef<SliderBreak[]>([]);
+  const breaks = useMemo(() => {
+    if (liveEdit) return breaksRef.current;
+    breaksRef.current =
       previewBeatmap && displayedReplay
         ? sliderBreaks(previewBeatmap, displayedReplay.frames, replayClient, judgedHeadHits)
-        : [],
-    [previewBeatmap, displayedReplay, replayClient, judgedHeadHits],
-  );
+        : [];
+    return breaksRef.current;
+  }, [previewBeatmap, displayedReplay, replayClient, judgedHeadHits, liveEdit]);
   useEffect(() => {
     if (clock) useEditorStore.getState().setSliderBreaks(breaks);
   }, [breaks, clock]);
+  const skinDirectory = useSkinStore((state) => state.osuDirectory);
+  const skinName = useSkinStore((state) => state.skinName);
+  const skinFiles = useSkinStore((state) => state.skinFiles);
+  const useSkinCircles = useSkinStore((state) => state.useSkinCircles);
+  const useSkinCursor = useSkinStore((state) => state.useSkinCursor);
+  useEffect(() => {
+    if (!ready) return;
+    if (!useSkinCircles && !useSkinCursor) {
+      viewerRef.current?.setSkin(null);
+      return;
+    }
+    let cancelled = false;
+    if (!skinDirectory || !skinName || !skinFiles.size) {
+      viewerRef.current?.setSkin(null);
+      return;
+    }
+    void loadViewerSkin({ directory: skinDirectory, name: skinName, files: skinFiles }).then((loaded) => {
+      if (!cancelled) viewerRef.current?.setSkin({ ...loaded, circles: useSkinCircles, cursor: useSkinCursor });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, skinDirectory, skinName, skinFiles, useSkinCircles, useSkinCursor]);
+  useHitsounds({
+    beatmap: previewBeatmap,
+    beatmapHash: resolution && resolution.source !== 'dev-fixture' ? resolution.replayHash : null,
+    simulation: judgedHeadHits ? (simulation ?? null) : null,
+    breaks,
+    enabled: clock,
+  });
   // Hit object under a playfield point that is visible at the playhead; earlier objects are drawn
   // on top, so they win when several overlap.
   const hitObjectAt = (point: { x: number; y: number }): number | null => {
@@ -429,6 +559,9 @@ export function BeatmapCanvas({
         cursorSize,
         showGrid,
         compactMode,
+        hideCollectedTicks,
+        snakingSliders,
+        snakingOutSliders,
         wireframeGameplay,
         fadeAfterClick,
         showHitJudgements,
@@ -446,6 +579,9 @@ export function BeatmapCanvas({
     cursorSize,
     showGrid,
     compactMode,
+    hideCollectedTicks,
+    snakingSliders,
+    snakingOutSliders,
     wireframeGameplay,
     fadeAfterClick,
     showHitJudgements,
@@ -551,7 +687,7 @@ export function BeatmapCanvas({
     if (!previewTrack) return [];
     const hardRock = (previewMods & 16) !== 0;
     const mirror = (frames: readonly ReplayFrame[], mods: number) =>
-      ((mods & 16) !== 0) === hardRock ? frames : frames.map((frame) => ({ ...frame, y: 384 - frame.y }));
+      ((mods & 16) !== 0) === hardRock ? frames : mirrorFrames(frames);
     const list = allTracks
       .filter((track) => track.visible && track.id !== previewTrack.id)
       .map((track) => ({
@@ -594,17 +730,19 @@ export function BeatmapCanvas({
   )
     .toString(16)
     .padStart(6, '0')}`;
-  const curveFrames =
-    interactive && (tool === 'curve' || tool === 'select') && displayedReplay
-      ? displayedReplay.frames.flatMap((frame, index) =>
-          frame.timeMs >= playhead - cursorTrailMs &&
-          frame.timeMs <= playhead + cursorTrailMs &&
-          (frame.timeMs <= playhead ? showCursorPast : showCursorFuture)
-            ? // Replays can hold several frames at the same time, so the replay index is the key.
-              [{ ...frame, index }]
-            : [],
-        )
-      : [];
+  const curveFrames = useMemo(() => {
+    if (!interactive || (tool !== 'curve' && tool !== 'select') || !displayedReplay) return [];
+    const frames = displayedReplay.frames;
+    const shown: (ReplayFrame & { index: number })[] = [];
+    // Only the frames around the playhead: found by binary search instead of scanning the replay.
+    for (let index = lowerBound(frames, playhead - cursorTrailMs); index < frames.length; index++) {
+      const frame = frames[index];
+      if (frame.timeMs > playhead + cursorTrailMs) break;
+      // Replays can hold several frames at the same time, so the replay index is the key.
+      if (frame.timeMs <= playhead ? showCursorPast : showCursorFuture) shown.push({ ...frame, index });
+    }
+    return shown;
+  }, [interactive, tool, displayedReplay, playhead, cursorTrailMs, showCursorPast, showCursorFuture]);
   const pointerPoint = (clientX: number, clientY: number) => {
     const box = hostRef.current?.getBoundingClientRect();
     if (!box) return null;
@@ -612,7 +750,9 @@ export function BeatmapCanvas({
   };
 
   const finishNodeDrag = (target: HTMLDivElement, pointerId: number) => {
+    flushEdit();
     nodeDragRef.current = null;
+    setLiveEdit(false);
     if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
   };
 
@@ -683,6 +823,7 @@ export function BeatmapCanvas({
           event.currentTarget.setPointerCapture(event.pointerId);
           setPlaying(false);
           beginBrushStroke(previewTrack.id);
+          setLiveEdit(true);
           brushDragRef.current = { pointerId: event.pointerId, trackId: previewTrack.id, ...point };
           return;
         }
@@ -736,30 +877,33 @@ export function BeatmapCanvas({
         if (tool === 'brush') {
           const point = pointerPoint(event.clientX, event.clientY);
           if (point) setBrushHover(point);
-          const brush = brushDragRef.current;
-          if (brush?.pointerId === event.pointerId && point) {
-            const selectedRange =
-              selectedCursorRange?.trackId === brush.trackId ? selectedCursorRange : selectedTimeRange;
-            const selectedFrames = selectedRange
-              ? undefined
-              : selectedCursorFrameTimes.length
-                ? selectedCursorFrameTimes
-                : selectedCursorFrameMs === null
-                  ? undefined
-                  : [selectedCursorFrameMs];
-            applyBrushDab(
-              brush.trackId,
-              brush.x,
-              brush.y,
-              brushRadiusPx,
-              point.x - brush.x,
-              point.y - brush.y,
-              selectedRange?.startMs ?? playhead - cursorTrailMs,
-              selectedRange?.endMs ?? playhead + cursorTrailMs,
-              selectedFrames,
-            );
-            brushDragRef.current = { ...brush, x: point.x, y: point.y };
-          }
+          if (brushDragRef.current?.pointerId === event.pointerId && point)
+            // One dab per frame, from where the last one ended to the newest pointer position.
+            queueEdit(() => {
+              const brush = brushDragRef.current;
+              if (!brush) return;
+              const selectedRange =
+                selectedCursorRange?.trackId === brush.trackId ? selectedCursorRange : selectedTimeRange;
+              const selectedFrames = selectedRange
+                ? undefined
+                : selectedCursorFrameTimes.length
+                  ? selectedCursorFrameTimes
+                  : selectedCursorFrameMs === null
+                    ? undefined
+                    : [selectedCursorFrameMs];
+              applyBrushDab(
+                brush.trackId,
+                brush.x,
+                brush.y,
+                brushRadiusPx,
+                point.x - brush.x,
+                point.y - brush.y,
+                selectedRange?.startMs ?? playhead - cursorTrailMs,
+                selectedRange?.endMs ?? playhead + cursorTrailMs,
+                selectedFrames,
+              );
+              brushDragRef.current = { ...brush, x: point.x, y: point.y };
+            });
         }
         const drag = panDragRef.current;
         const nodeDrag = nodeDragRef.current;
@@ -788,15 +932,19 @@ export function BeatmapCanvas({
             if (!nodeDrag.moved) {
               // One undo step per drag, taken only once the node actually moves.
               beginBrushStroke(nodeDrag.trackId);
+              setLiveEdit(true);
               nodeDrag.moved = true;
             }
-            dragCursorNodes(
-              nodeDrag.trackId,
-              nodeDrag.originFrames,
-              nodeDrag.times,
-              point.x - nodeDrag.x,
-              point.y - nodeDrag.y,
-              magneticMove,
+            // Offsets are from the drag origin, so only the newest position per frame matters.
+            queueEdit(() =>
+              dragCursorNodes(
+                nodeDrag.trackId,
+                nodeDrag.originFrames,
+                nodeDrag.times,
+                point.x - nodeDrag.x,
+                point.y - nodeDrag.y,
+                magneticMove,
+              ),
             );
           }
           return;
@@ -810,7 +958,9 @@ export function BeatmapCanvas({
         if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, true, event.clientX, event.clientY);
         else if (nodeDragRef.current) finishNodeDrag(event.currentTarget, event.pointerId);
         else if (brushDragRef.current?.pointerId === event.pointerId) {
+          flushEdit();
           brushDragRef.current = null;
+          setLiveEdit(false);
           if (event.currentTarget.hasPointerCapture(event.pointerId))
             event.currentTarget.releasePointerCapture(event.pointerId);
         } else finishPan(event.currentTarget);
@@ -818,14 +968,20 @@ export function BeatmapCanvas({
       onPointerCancel={(event) => {
         if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, false);
         else if (nodeDragRef.current) finishNodeDrag(event.currentTarget, event.pointerId);
-        else if (brushDragRef.current?.pointerId === event.pointerId) brushDragRef.current = null;
-        else finishPan(event.currentTarget);
+        else if (brushDragRef.current?.pointerId === event.pointerId) {
+          flushEdit();
+          brushDragRef.current = null;
+          setLiveEdit(false);
+        } else finishPan(event.currentTarget);
       }}
       onLostPointerCapture={(event) => {
         if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, false);
         else if (nodeDragRef.current) finishNodeDrag(event.currentTarget, event.pointerId);
-        else if (brushDragRef.current?.pointerId === event.pointerId) brushDragRef.current = null;
-        else finishPan(event.currentTarget);
+        else if (brushDragRef.current?.pointerId === event.pointerId) {
+          flushEdit();
+          brushDragRef.current = null;
+          setLiveEdit(false);
+        } else finishPan(event.currentTarget);
       }}
       onPointerLeave={() => setBrushHover(null)}
       onWheel={(event) => {

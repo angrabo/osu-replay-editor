@@ -1,3 +1,4 @@
+mod skins;
 use serde::Serialize;
 use std::net::TcpListener;
 use std::path::PathBuf;
@@ -218,7 +219,12 @@ pub fn run() {
             sidecar_connection,
             stop_sidecar_for_update,
             diagnose_update,
-            read_user_file
+            read_user_file,
+            skins::detect_osu_stable,
+            skins::osu_stable_current_skin,
+            skins::list_stable_skins,
+            skins::list_skin_files,
+            skins::read_skin_file
         ])
         .build(tauri::generate_context!())
         .expect("Failed to build Tauri application");

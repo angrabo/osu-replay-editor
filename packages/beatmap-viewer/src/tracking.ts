@@ -4,22 +4,56 @@ import { logicalButtons } from './renderMath';
 
 const clamp = (value: number, min = 0, max = 1) => Math.max(min, Math.min(max, value));
 
+// Distance travelled at each path point, cached per path: sliders are sampled every few ms, and
+// re-measuring a long path for every sample made whole-map analysis slow.
+const pathDistances = new WeakMap<Point[], Float64Array>();
+function cumulativeDistances(path: Point[]): Float64Array {
+  let distances = pathDistances.get(path);
+  if (!distances) {
+    distances = new Float64Array(path.length);
+    for (let index = 1; index < path.length; index++)
+      distances[index] =
+        distances[index - 1] + Math.hypot(path[index].x - path[index - 1].x, path[index].y - path[index - 1].y);
+    pathDistances.set(path, distances);
+  }
+  return distances;
+}
+
 export function pointOnPath(path: Point[], progress: number): Point {
   if (path.length < 2) return path[0] || { x: 256, y: 192 };
-  const lengths = path.slice(1).map((point, index) => Math.hypot(point.x - path[index].x, point.y - path[index].y));
-  const total = lengths.reduce((sum, length) => sum + length, 0) || 1;
-  let remaining = clamp(progress) * total;
-  for (let index = 0; index < lengths.length; index++) {
-    if (remaining <= lengths[index]) {
-      const ratio = lengths[index] ? remaining / lengths[index] : 0;
-      return {
-        x: path[index].x + (path[index + 1].x - path[index].x) * ratio,
-        y: path[index].y + (path[index + 1].y - path[index].y) * ratio,
-      };
-    }
-    remaining -= lengths[index];
+  const distances = cumulativeDistances(path);
+  const total = distances[distances.length - 1] || 1;
+  const target = clamp(progress) * total;
+  // The first point at or past the target distance.
+  let low = 1;
+  let high = distances.length - 1;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (distances[middle] < target) low = middle + 1;
+    else high = middle;
   }
-  return path.at(-1)!;
+  const length = distances[low] - distances[low - 1];
+  const ratio = length ? (target - distances[low - 1]) / length : 0;
+  return {
+    x: path[low - 1].x + (path[low].x - path[low - 1].x) * ratio,
+    y: path[low - 1].y + (path[low].y - path[low - 1].y) * ratio,
+  };
+}
+
+/// The part of a path between two progress values (0..1), as points.
+export function pathSegment(path: Point[], from: number, to: number): Point[] {
+  const start = clamp(Math.min(from, to));
+  const end = clamp(Math.max(from, to));
+  if (path.length < 2 || end - start >= 1) return path;
+  const distances = cumulativeDistances(path);
+  const total = distances[distances.length - 1] || 1;
+  const points: Point[] = [pointOnPath(path, start)];
+  for (let index = 1; index < path.length; index++) {
+    const progress = distances[index] / total;
+    if (progress > start && progress < end) points.push(path[index]);
+  }
+  points.push(pointOnPath(path, end));
+  return points;
 }
 
 export function sliderBallAt(slider: HitSlider, timeMs: number): Point {
@@ -52,11 +86,20 @@ export function sliderHeadHitTime(
 ): number | null {
   if (judgedHitTime !== undefined) return judgedHitTime;
   const window = 200 - 10 * overallDifficulty;
-  let previous = 0;
-  for (const frame of frames) {
+  // Jump to the window by binary search; the frame before it gives the keys already held.
+  let low = 0;
+  let high = frames.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (frames[middle].timeMs < slider.startTime - window) low = middle + 1;
+    else high = middle;
+  }
+  let previous = low > 0 ? logicalButtons(frames[low - 1].keys) : 0;
+  for (let index = low; index < frames.length; index++) {
+    const frame = frames[index];
     if (frame.timeMs > slider.startTime + window) break;
     const buttons = logicalButtons(frame.keys);
-    if (frame.timeMs >= slider.startTime - window && buttons & ~previous) return frame.timeMs;
+    if (buttons & ~previous) return frame.timeMs;
     previous = buttons;
   }
   return null;

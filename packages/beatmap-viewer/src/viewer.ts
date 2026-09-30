@@ -12,19 +12,31 @@ import {
 } from './renderMath';
 import { replayPointAt } from './replay';
 import { speedColor } from './speed';
-import { analyseSlider, pointOnPath, sliderBallAt, sliderHeadHitTime, sliderTailCheckTime } from './tracking';
+import {
+  analyseSlider,
+  pathSegment,
+  pointOnPath,
+  sliderBallAt,
+  sliderHeadHitTime,
+  sliderTailCheckTime,
+} from './tracking';
 import { DEFAULT_CURSOR_LAYER_ORDER, normalizeCursorLayerOrder, type CursorLayerId } from './layers';
 import type {
   BeatmapSource,
   BeatmapViewerAdapter,
   PreviewGhost,
   PreviewJudgement,
+  ViewerSkin,
   PreviewReplay,
   ViewerCallbacks,
   ViewerOptions,
 } from './index';
 
 const clamp = (value: number, min = 0, max = 1) => Math.max(min, Math.min(max, value));
+// Playback speed limits; below MIN_AUDIO_RATE browsers refuse to play audio.
+const MIN_RATE = 0.001;
+const MAX_RATE = 5;
+const MIN_AUDIO_RATE = 0.0625;
 
 // Direction the slider ball travels away from a repeat point at path progress `t`,
 // sampled a short step further along the path in that direction.
@@ -58,6 +70,13 @@ function drawReverseArrow(graphics: Graphics, x: number, y: number, angle: numbe
 // Share of an exported frame the 512×384 playfield grid fills; the rest shows off-grid objects.
 export const CAPTURE_SCALE = 0.8;
 const HIGHLIGHT_COLOR = 0xffd84d;
+
+function mixColour(from: number, to: number, amount: number): number {
+  return [16, 8, 0].reduce((sum, shift) => {
+    const channel = Math.round(((from >> shift) & 255) * (1 - amount) + ((to >> shift) & 255) * amount);
+    return sum | (channel << shift);
+  }, 0);
+}
 const BREAK_COLOR = 0xff4d5e;
 
 export class PixiBeatmapViewer implements BeatmapViewerAdapter {
@@ -73,6 +92,10 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
   // slider that cross or double back over themselves never stack into darker patches.
   private readonly objectLayerPool: {
     container: Container;
+    // Skin sprites of this object, reused frame to frame; spriteCount are in use this frame.
+    spriteLayer: Container;
+    sprites: Sprite[];
+    spriteCount: number;
     body: Container;
     bodyFade: AlphaFilter;
     bodyFill: Graphics;
@@ -95,6 +118,8 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     ghosts: new Graphics(),
   };
   private ghosts: readonly PreviewGhost[] = [];
+  private skin: ViewerSkin | null = null;
+  private readonly cursorSprites = new Container();
   private appliedLayerOrder = '';
   private observer: ResizeObserver | null = null;
   private background: Sprite | null = null;
@@ -125,6 +150,9 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     showHiddenFade: false,
     showSliderEndWindows: false,
     showSliderTracking: true,
+    hideCollectedTicks: true,
+    snakingSliders: true,
+    snakingOutSliders: false,
     zoom: 1,
     cursorTrailMs: 220,
     highlightedObjectIndex: null,
@@ -160,6 +188,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
       viewer.cursorTrail,
       viewer.overlayContainer,
       viewer.cursor,
+      viewer.cursorSprites,
       viewer.cursorClicks,
     );
     viewer.applyLayerOrder();
@@ -218,6 +247,72 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
   setGhosts(ghosts: readonly PreviewGhost[]): void {
     this.ghosts = ghosts;
     this.draw();
+  }
+
+  setSkin(skin: ViewerSkin | null): void {
+    this.skin = skin;
+    this.draw();
+  }
+
+  /// The skin used for hit objects, unless wireframe (an editor view) is on.
+  private circleSkin(): ViewerSkin | null {
+    return this.skin?.circles && !this.options.wireframeGameplay ? this.skin : null;
+  }
+
+  private skinSprite(
+    layer: { spriteLayer: Container; sprites: Sprite[]; spriteCount: number },
+    name: string,
+    x: number,
+    y: number,
+    scale: number,
+    tint: number,
+    alpha: number,
+    rotation = 0,
+  ): Sprite | null {
+    const entry = this.skin?.textures[name];
+    if (!entry) return null;
+    let sprite = layer.sprites[layer.spriteCount];
+    if (!sprite) {
+      sprite = new Sprite();
+      sprite.anchor.set(0.5);
+      layer.spriteLayer.addChild(sprite);
+      layer.sprites.push(sprite);
+    }
+    layer.spriteCount++;
+    sprite.texture = entry.texture;
+    sprite.position.set(x, y);
+    sprite.scale.set(scale * (entry.hd ? 0.5 : 1));
+    sprite.tint = tint;
+    sprite.alpha = alpha;
+    sprite.rotation = rotation;
+    sprite.visible = true;
+    return sprite;
+  }
+
+  /// A skin's hit-circle number from its digit images, 0.8× the circle scale like stable.
+  private skinNumber(
+    layer: { spriteLayer: Container; sprites: Sprite[]; spriteCount: number },
+    value: number,
+    x: number,
+    y: number,
+    objectScale: number,
+    alpha: number,
+  ): boolean {
+    const skin = this.skin;
+    if (!skin) return false;
+    const digits = String(value).split('');
+    const entries = digits.map((digit) => skin.textures[`default-${digit}`]);
+    if (entries.some((entry) => !entry)) return false;
+    const scale = objectScale * 0.8;
+    const widths = entries.map((entry) => entry!.texture.width * (entry!.hd ? 0.5 : 1) * scale);
+    const overlap = skin.hitCircleOverlap * scale;
+    const total = widths.reduce((sum, width) => sum + width, 0) - overlap * (digits.length - 1);
+    let left = x - total / 2;
+    digits.forEach((digit, index) => {
+      this.skinSprite(layer, `default-${digit}`, left + widths[index] / 2, y, scale, 0xffffff, alpha);
+      left += widths[index] - overlap;
+    });
+    return true;
   }
   setJudgements(judgements: readonly PreviewJudgement[] | null): void {
     this.judgements = judgements;
@@ -278,7 +373,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
   play(): void {
     if (!this.beatmap || this.playing) return;
     this.playing = true;
-    if (this.audio && this.timeMs >= 0)
+    if (this.audio && this.timeMs >= 0 && this.audible())
       void this.audio.play().catch(() => {
         /* visual clock remains available */
       });
@@ -288,9 +383,16 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     this.playing = false;
     this.audio?.pause();
   }
+  /// Browsers only play audio between 1/16× and 16×; slower than that the music stops and the
+  /// visual clock alone drives playback.
+  private audible(): boolean {
+    return this.rate >= MIN_AUDIO_RATE;
+  }
   setRate(rate: number): void {
-    this.rate = clamp(rate, 0.25, 4);
-    if (this.audio) this.audio.playbackRate = this.rate;
+    this.rate = clamp(rate, MIN_RATE, MAX_RATE);
+    if (!this.audio) return;
+    if (this.audible()) this.audio.playbackRate = this.rate;
+    else this.audio.pause();
   }
   setVolume(volume: number): void {
     this.volume = clamp(volume, 0, 100);
@@ -353,7 +455,8 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     if (this.audio && !this.audio.paused) this.timeMs = this.audio.currentTime * 1000;
     else {
       this.timeMs += Math.min(100, deltaMs) * this.rate;
-      if (this.audio && this.timeMs >= 0 && this.audio.paused) {
+      if (this.audio && this.timeMs >= 0 && this.audio.paused && this.audible()) {
+        this.audio.playbackRate = this.rate;
         this.audio.currentTime = this.timeMs / 1000;
         void this.audio.play().catch(() => {
           /* visual clock remains available */
@@ -459,9 +562,21 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
       const bodyCut = new Graphics();
       bodyCut.blendMode = 'erase';
       body.addChild(bodyFill, bodyCut);
-      container.addChild(body, graphics, label);
+      const spriteLayer = new Container();
+      container.addChild(body, graphics, spriteLayer, label);
       this.objectLayers.addChild(container);
-      this.objectLayerPool.push({ container, body, bodyFade, bodyFill, bodyCut, graphics, label });
+      this.objectLayerPool.push({
+        container,
+        spriteLayer,
+        sprites: [],
+        spriteCount: 0,
+        body,
+        bodyFade,
+        bodyFill,
+        bodyCut,
+        graphics,
+        label,
+      });
     }
     const layer = this.objectLayerPool[index];
     layer.container.visible = true;
@@ -470,11 +585,22 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     layer.bodyCut.clear();
     layer.graphics.clear();
     layer.label.visible = false;
+    layer.spriteCount = 0;
+    layer.sprites.forEach((sprite) => (sprite.visible = false));
     return layer;
   }
 
   private drawSlider(
-    layer: { body: Container; bodyFade: AlphaFilter; bodyFill: Graphics; bodyCut: Graphics; graphics: Graphics },
+    layer: {
+      body: Container;
+      bodyFade: AlphaFilter;
+      bodyFill: Graphics;
+      bodyCut: Graphics;
+      graphics: Graphics;
+      spriteLayer: Container;
+      sprites: Sprite[];
+      spriteCount: number;
+    },
     slider: HitSlider,
     radius: number,
     color: number,
@@ -485,10 +611,37 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
   ) {
     const graphics = layer.graphics;
     if (!slider.path.length) return;
+    // Visible stretch of the body (path progress): snaking in grows it from the head over the first
+    // third of the approach; snaking out trims it behind the ball on the final span.
+    const preempt = this.beatmap ? approachPreempt(this.beatmap.approachRate) : 1200;
+    const duration = Math.max(1, slider.endTime - slider.startTime);
+    const raw = clamp((this.timeMs - slider.startTime) / duration) * slider.repeats;
+    const span = Math.min(slider.repeats - 1, Math.floor(raw));
+    const spanProgress = raw - span;
+    const forward = span % 2 === 0;
+    const ballProgress = forward ? spanProgress : 1 - spanProgress;
+    let visibleFrom = 0;
+    let visibleTo = 1;
+    if (this.options.snakingSliders && this.timeMs < slider.startTime)
+      visibleTo = clamp((this.timeMs - (slider.startTime - preempt)) / (preempt / 3));
+    if (this.options.snakingOutSliders && this.timeMs >= slider.startTime && span === slider.repeats - 1) {
+      if (forward) visibleFrom = ballProgress;
+      else visibleTo = ballProgress;
+    }
+    const bodyPath =
+      visibleFrom > 0 || visibleTo < 1
+        ? pathSegment(slider.path, visibleFrom, Math.max(visibleFrom + 1e-4, visibleTo))
+        : slider.path;
     const trace = (target: Graphics) => {
-      target.moveTo(slider.path[0].x, slider.path[0].y);
-      slider.path.slice(1).forEach((point) => target.lineTo(point.x, point.y));
+      target.moveTo(bodyPath[0].x, bodyPath[0].y);
+      bodyPath.slice(1).forEach((point) => target.lineTo(point.x, point.y));
     };
+    const shown = (progress: number) => progress >= visibleFrom - 1e-6 && progress <= visibleTo + 1e-6;
+    // A tick is collected once the ball has passed it in the current span.
+    const collected = (progress: number) =>
+      this.options.hideCollectedTicks &&
+      this.timeMs >= slider.startTime &&
+      (this.timeMs >= slider.endTime || (forward ? progress <= ballProgress : progress >= ballProgress));
     const round = { cap: 'round', join: 'round' } as const;
     layer.body.visible = true;
     layer.bodyFade.alpha = alpha;
@@ -536,12 +689,25 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     } else {
       // Opaque layers drawn over the whole path in turn: where the slider crosses itself the
       // inner layers cover the outer ones, so it reads as one continuous body.
-      trace(layer.bodyFill);
-      layer.bodyFill.stroke({ ...round, color: 0xffffff, width: radius * 2.05 });
-      trace(layer.bodyFill);
-      layer.bodyFill.stroke({ ...round, color, width: radius * 1.78 });
-      trace(layer.bodyFill);
-      layer.bodyFill.stroke({ ...round, color: 0x11151c, width: radius * 1.48 });
+      const skin = this.circleSkin();
+      if (skin) {
+        // Stable draws the body with a shader: border colour, then the track (SliderTrackOverride
+        // or the combo colour) slightly lighter towards the middle.
+        const track = skin.sliderTrack ?? mixColour(color, 0x000000, 0.2);
+        trace(layer.bodyFill);
+        layer.bodyFill.stroke({ ...round, color: skin.sliderBorder ?? 0xffffff, width: radius * 2 });
+        trace(layer.bodyFill);
+        layer.bodyFill.stroke({ ...round, color: track, width: radius * 1.76 });
+        trace(layer.bodyFill);
+        layer.bodyFill.stroke({ ...round, color: mixColour(track, 0xffffff, 0.12), width: radius * 1.2 });
+      } else {
+        trace(layer.bodyFill);
+        layer.bodyFill.stroke({ ...round, color: 0xffffff, width: radius * 2.05 });
+        trace(layer.bodyFill);
+        layer.bodyFill.stroke({ ...round, color, width: radius * 1.78 });
+        trace(layer.bodyFill);
+        layer.bodyFill.stroke({ ...round, color: 0x11151c, width: radius * 1.48 });
+      }
     }
     const frames = this.replay?.frames;
     const tracking =
@@ -576,8 +742,12 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
       });
     }
     for (let distance = slider.tickDistance; distance < slider.pixelLength - 0.5; distance += slider.tickDistance) {
-      const tick = pointOnPath(slider.path, distance / Math.max(1, slider.pixelLength));
+      const tickProgress = distance / Math.max(1, slider.pixelLength);
+      if (!shown(tickProgress) || collected(tickProgress)) continue;
+      const tick = pointOnPath(slider.path, tickProgress);
       // Ticks are tiny dots so they mark positions without covering the path.
+      if (this.circleSkin() && this.skinSprite(layer, 'sliderscorepoint', tick.x, tick.y, radius / 64, 0xffffff, alpha))
+        continue;
       const tickRadius = this.options.compactMode ? Math.max(0.9, radius * 0.035) : Math.max(1.2, radius * 0.05);
       graphics
         .circle(tick.x, tick.y, tickRadius)
@@ -588,7 +758,14 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     for (let repeat = 1; repeat < slider.repeats; repeat++) {
       const atStart = repeat % 2 === 0;
       const edge = atStart ? start : finish;
+      // Arrows show once the body reaches them, and only while that turn is still ahead.
+      if (!shown(atStart ? 0 : 1) || (this.timeMs >= slider.startTime && repeat <= span)) continue;
       const angle = pathAngle(slider.path, atStart ? 0 : 1, atStart);
+      if (
+        this.circleSkin() &&
+        this.skinSprite(layer, 'reversearrow', edge.x, edge.y, radius / 64, 0xffffff, alpha, angle)
+      )
+        continue;
       if (this.options.wireframeGameplay) drawReverseArrow(graphics, edge.x, edge.y, angle, radius * 0.62, alpha);
       else {
         graphics.circle(edge.x, edge.y, radius * 0.42).fill({ color: 0x10141b, alpha: 0.68 * alpha });
@@ -606,6 +783,25 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
         !lastSample.tracked &&
         this.timeMs >= tracking!.from &&
         this.timeMs <= sliderTailCheckTime(slider);
+      const skin = this.circleSkin();
+      if (skin && (skin.textures.sliderb0 || skin.textures.sliderb)) {
+        const ahead = sliderBallAt(slider, Math.min(slider.endTime, this.timeMs + 8));
+        const behind = sliderBallAt(slider, Math.max(slider.startTime, this.timeMs - 8));
+        const heading = Math.atan2(ahead.y - behind.y, ahead.x - behind.x);
+        const scale = radius / 64;
+        this.skinSprite(
+          layer,
+          skin.textures.sliderb0 ? 'sliderb0' : 'sliderb',
+          ball.x,
+          ball.y,
+          scale,
+          0xffffff,
+          alpha,
+          heading,
+        );
+        this.skinSprite(layer, 'sliderfollowcircle', ball.x, ball.y, scale, lost ? BREAK_COLOR : 0xffffff, alpha);
+        return;
+      }
       graphics
         .circle(ball.x, ball.y, radius * 2.4)
         .fill({ color: lost ? BREAK_COLOR : color, alpha: lost ? 0.12 : 0.08 })
@@ -686,16 +882,32 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
   }
 
   private drawCircle(
-    layer: { graphics: Graphics; label: Text },
+    layer: { graphics: Graphics; label: Text; spriteLayer: Container; sprites: Sprite[]; spriteCount: number },
     x: number,
     y: number,
     radius: number,
     color: number,
     alpha: number,
     number: number,
+    sliderHead = false,
   ) {
+    const skin = this.circleSkin();
+    const circleName = sliderHead && skin?.textures.sliderstartcircle ? 'sliderstartcircle' : 'hitcircle';
+    if (skin?.textures[circleName]) {
+      const scale = radius / 64;
+      this.skinSprite(layer, circleName, x, y, scale, color, alpha);
+      const overlayName =
+        sliderHead && skin.textures['sliderstartcircleoverlay'] ? 'sliderstartcircleoverlay' : 'hitcircleoverlay';
+      this.skinSprite(layer, overlayName, x, y, scale, 0xffffff, alpha);
+      if (this.skinNumber(layer, number, x, y, scale, alpha)) return;
+    }
     if (this.options.wireframeGameplay) {
       layer.graphics.circle(x, y, radius).stroke({ color, width: 2.4, alpha });
+      return;
+    }
+    if (skin?.textures[circleName]) {
+      // Skin circle drawn above, but its digits are missing: fall back to the text number.
+      this.showLabel(layer.label, x, y, radius, alpha, number);
       return;
     }
     layer.graphics
@@ -706,7 +918,10 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
       .circle(x, y, radius * 0.72)
       .fill({ color: 0x10141b, alpha: 0.72 * alpha })
       .stroke({ color, width: 2.5, alpha: 0.72 * alpha });
-    const label = layer.label;
+    this.showLabel(layer.label, x, y, radius, alpha, number);
+  }
+
+  private showLabel(label: Text, x: number, y: number, radius: number, alpha: number, number: number) {
     if (label.text !== String(number)) label.text = String(number);
     const fontSize = Math.max(18, radius * 0.76);
     if (label.style.fontSize !== fontSize) label.style.fontSize = fontSize;
@@ -754,7 +969,12 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
       if (alpha <= 0) continue;
       const layer = this.objectLayer(visibleIndex++);
       const graphics = layer.graphics;
-      const color = map.comboColors[object.comboIndex % map.comboColors.length];
+      // Like stable, a skin's combo colours apply when the map has none of its own.
+      const colours =
+        this.circleSkin() && !map.hasComboColours && this.skin!.comboColours.length
+          ? this.skin!.comboColours
+          : map.comboColors;
+      const color = colours[object.comboIndex % colours.length];
       const highlighted = this.options.highlightedObjectIndex === objectIndex;
       if (object.kind === 'spinner') {
         if (highlighted) graphics.circle(256, 192, 126).stroke({ color: HIGHLIGHT_COLOR, width: 4, alpha });
@@ -786,14 +1006,36 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
         this.timeMs >= judgement.hitTime
       )
         headAlpha = Math.min(headAlpha, hitFadeAlpha(this.timeMs, judgement.hitTime));
-      if (headAlpha > 0) this.drawCircle(layer, object.x, object.y, radius, color, headAlpha, object.comboNumber);
+      if (headAlpha > 0)
+        this.drawCircle(
+          layer,
+          object.x,
+          object.y,
+          radius,
+          color,
+          headAlpha,
+          object.comboNumber,
+          object.kind === 'slider',
+        );
       if (highlighted && object.kind === 'circle')
         graphics.circle(object.x, object.y, radius + 6).stroke({ color: HIGHLIGHT_COLOR, width: 3.5, alpha });
       if (this.timeMs <= object.startTime && !hiddenFade) {
         const progress = clamp((this.timeMs - (object.startTime - preempt)) / preempt);
-        graphics
-          .circle(object.x, object.y, radius * (4 - 3 * progress))
-          .stroke({ color, width: 3, alpha: 0.9 * alpha });
+        const approach =
+          this.circleSkin() &&
+          this.skinSprite(
+            layer,
+            'approachcircle',
+            object.x,
+            object.y,
+            (radius / 64) * (4 - 3 * progress),
+            color,
+            0.9 * alpha,
+          );
+        if (!approach)
+          graphics
+            .circle(object.x, object.y, radius * (4 - 3 * progress))
+            .stroke({ color, width: 3, alpha: 0.9 * alpha });
       }
     }
     this.drawJudgements(map);
@@ -878,12 +1120,39 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     }
   }
 
+  /// The skin's cursor (and cursormiddle) instead of the drawn one. Sizes are in playfield units,
+  /// which match stable's osu!pixels.
+  private drawSkinCursor(x: number, y: number, cursorScale: number): boolean {
+    const skin = this.skin;
+    const cursor = skin?.cursor ? skin.textures.cursor : undefined;
+    if (!skin || !cursor) return false;
+    const place = (index: number, name: string) => {
+      const entry = skin.textures[name];
+      if (!entry) return;
+      let sprite = this.cursorSprites.children[index] as Sprite | undefined;
+      if (!sprite) {
+        sprite = new Sprite();
+        this.cursorSprites.addChild(sprite);
+      }
+      sprite.texture = entry.texture;
+      sprite.anchor.set(skin.cursorCentre || name === 'cursormiddle' ? 0.5 : 0);
+      sprite.position.set(x, y);
+      sprite.scale.set((entry.hd ? 0.5 : 1) * cursorScale);
+      sprite.visible = true;
+    };
+    place(0, 'cursor');
+    place(1, 'cursormiddle');
+    return true;
+  }
+
   private drawCursor() {
+    this.cursorSprites.children.forEach((child) => (child.visible = false));
     const replay = this.replay;
     // The previewed replay's own opacity fades its cursor and overlays, not the ghosts.
     const opacity = clamp(replay?.opacity ?? 1, 0.05, 1);
     for (const [id, graphics] of Object.entries(this.overlays)) graphics.alpha = id === 'ghosts' ? 1 : opacity;
     this.cursor.alpha = opacity;
+    this.cursorSprites.alpha = opacity;
     this.cursorTrail.alpha = opacity;
     this.cursorClicks.alpha = opacity;
     if (!replay?.frames.length || this.timeMs < replay.frames[0].timeMs) return;
@@ -1121,6 +1390,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     }
     drawSelectedRange();
     const cursorScale = clamp(this.options.cursorSize ?? 100, 50, 200) / 100;
+    if (this.drawSkinCursor(point.x, point.y, cursorScale)) return;
     this.cursor
       .circle(point.x, point.y, 10 * cursorScale)
       .fill({ color, alpha: 0.96 })

@@ -37,12 +37,64 @@ export function HitErrorBar({ windows, hitError }: { windows: HitWindows; hitErr
   );
 }
 
+/// Where the cursor was, relative to the circle, when it mattered: the hit (one dot in the
+/// result's colour) or, for a miss, the nearby presses / the cursor at the object's time.
+export type AimInfo = {
+  radius: number;
+  points: { dx: number; dy: number; kind: 'hit' | 'press' | 'cursor' }[];
+  result: SimulationJudgement['result'] | null;
+};
+
+function AimTarget({ aim }: { aim: AimInfo }) {
+  const size = 76;
+  const farthest = Math.max(aim.radius, ...aim.points.map((point) => Math.hypot(point.dx, point.dy)));
+  // Keep the circle large, but zoom out enough for far-off clicks.
+  const scale = (size / 2 - 5) / Math.max(aim.radius * 1.35, farthest * 1.1);
+  const centre = size / 2;
+  const colour = aim.result ? resultColour[aim.result] : '#aab6c3';
+  const main = aim.points[0];
+  const distance = main ? Math.hypot(main.dx, main.dy) : null;
+  return (
+    <div className="aim-target">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+        <circle cx={centre} cy={centre} r={aim.radius * scale} fill="#ffffff0d" stroke={colour} strokeWidth="1.5" />
+        <line x1={centre - 4} y1={centre} x2={centre + 4} y2={centre} stroke="#ffffff55" />
+        <line x1={centre} y1={centre - 4} x2={centre} y2={centre + 4} stroke="#ffffff55" />
+        {aim.points.map((point, index) => (
+          <circle
+            key={index}
+            cx={centre + point.dx * scale}
+            cy={centre + point.dy * scale}
+            r={point.kind === 'cursor' ? 3 : 3.6}
+            fill={point.kind === 'cursor' ? 'none' : point.kind === 'hit' ? colour : '#ff6575'}
+            stroke={point.kind === 'cursor' ? '#c8d6e4' : '#0b1119'}
+            strokeWidth="1.2"
+          />
+        ))}
+      </svg>
+      <span>
+        {distance === null
+          ? 'No cursor data'
+          : `${Math.round(distance)} px from centre${distance > aim.radius ? ` · ${Math.round(distance - aim.radius)} px outside` : ''}`}
+        <small>
+          {main?.kind === 'hit'
+            ? 'At the hit'
+            : main?.kind === 'press'
+              ? 'Presses near the object'
+              : 'Cursor at the object time'}
+        </small>
+      </span>
+    </div>
+  );
+}
+
 export function HitObjectTooltip({
   object,
   index,
   judgement,
   sliderBreak,
   missCause,
+  aim,
   windows,
   x,
   y,
@@ -52,6 +104,7 @@ export function HitObjectTooltip({
   judgement: SimulationJudgement | null;
   sliderBreak?: SliderBreak | null;
   missCause?: MissCause | null;
+  aim?: AimInfo | null;
   windows: HitWindows | null;
   x: number;
   y: number;
@@ -88,6 +141,7 @@ export function HitObjectTooltip({
             : 'Lost tracking between checks (no break)'}
         </span>
       )}
+      {aim && object.kind !== 'spinner' && <AimTarget aim={aim} />}
       {windows && object.kind !== 'spinner' && <HitErrorBar windows={windows} hitError={hit} />}
     </div>
   );

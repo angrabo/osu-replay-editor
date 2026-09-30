@@ -1,5 +1,15 @@
 export type Point = { x: number; y: number };
-export type TimingPoint = { time: number; beatLength: number; uninherited: boolean };
+export type TimingPoint = {
+  time: number;
+  beatLength: number;
+  uninherited: boolean;
+  // Hitsound defaults from this point on: 0 = the beatmap's default set, 1 normal, 2 soft, 3 drum.
+  sampleSet: number;
+  sampleIndex: number;
+  volume: number;
+};
+// The optional hitSample field of a hit object (normalSet:additionSet:index:volume:filename).
+export type HitSample = { normalSet: number; additionSet: number; index: number; volume: number; filename: string };
 type HitObjectBase = {
   x: number;
   y: number;
@@ -8,6 +18,9 @@ type HitObjectBase = {
   newCombo: boolean;
   comboIndex: number;
   comboNumber: number;
+  // Additions bitmask: 1 normal, 2 whistle, 4 finish, 8 clap.
+  hitSound: number;
+  hitSample: HitSample;
 };
 export type HitCircle = HitObjectBase & { kind: 'circle' };
 export type HitSlider = HitObjectBase & {
@@ -18,6 +31,9 @@ export type HitSlider = HitObjectBase & {
   pixelLength: number;
   spanDuration: number;
   tickDistance: number;
+  // Per edge (head, each repeat, tail): additions bitmask and [normalSet, additionSet].
+  edgeSounds: number[];
+  edgeSets: [number, number][];
 };
 export type HitSpinner = HitObjectBase & { kind: 'spinner' };
 export type HitObject = HitCircle | HitSlider | HitSpinner;
@@ -34,8 +50,12 @@ export type ParsedBeatmap = {
   overallDifficulty: number;
   sliderMultiplier: number;
   sliderTickRate: number;
+  // General.SampleSet: 1 normal, 2 soft, 3 drum.
+  defaultSampleSet: number;
   timingPoints: TimingPoint[];
   comboColors: number[];
+  // False when the map has no [Colours]; a skin's combo colours are used then.
+  hasComboColours: boolean;
   hitObjects: HitObject[];
   durationMs: number;
 };
@@ -194,7 +214,14 @@ export function parseOsu(text: string): ParsedBeatmap {
   const timingPoints: TimingPoint[] = (sections.get('TimingPoints') || [])
     .map((line) => {
       const parts = line.split(',');
-      return { time: number(parts[0], 0), beatLength: number(parts[1], 500), uninherited: parts[6] !== '0' };
+      return {
+        time: number(parts[0], 0),
+        beatLength: number(parts[1], 500),
+        uninherited: parts[6] !== '0',
+        sampleSet: number(parts[3], 0),
+        sampleIndex: number(parts[4], 0),
+        volume: number(parts[5], 100),
+      };
     })
     .sort((a, b) => a.time - b.time);
   const sliderMultiplier = number(difficulty.SliderMultiplier, 1.4);
@@ -214,9 +241,25 @@ export function parseOsu(text: string): ParsedBeatmap {
       if (hitObjects.length > 0) comboIndex++;
       comboNumber = 1;
     } else comboNumber++;
-    const base = { x, y, startTime, endTime: startTime, newCombo, comboIndex, comboNumber };
+    const hitSound = number(parts[4], 0);
+    const base = { x, y, startTime, endTime: startTime, newCombo, comboIndex, comboNumber, hitSound };
+    const sampleField = (index: number): HitSample => {
+      const values = (parts[index] ?? '').split(':');
+      return {
+        normalSet: number(values[0], 0),
+        additionSet: number(values[1], 0),
+        index: number(values[2], 0),
+        volume: number(values[3], 0),
+        filename: (values[4] ?? '').trim(),
+      };
+    };
     if ((type & 8) !== 0)
-      hitObjects.push({ ...base, kind: 'spinner', endTime: Math.max(startTime, number(parts[5], startTime)) });
+      hitObjects.push({
+        ...base,
+        kind: 'spinner',
+        endTime: Math.max(startTime, number(parts[5], startTime)),
+        hitSample: sampleField(6),
+      });
     else if ((type & 2) !== 0 && parts.length >= 8) {
       const curve = parts[5].split('|');
       const controls = [
@@ -245,8 +288,14 @@ export function parseOsu(text: string): ParsedBeatmap {
         spanDuration: duration / repeats,
         tickDistance: (sliderMultiplier * 100 * velocity) / sliderTickRate,
         endTime: startTime + duration,
+        hitSample: sampleField(10),
+        edgeSounds: (parts[8] ?? '').split('|').map((part) => number(part, hitSound)),
+        edgeSets: (parts[9] ?? '').split('|').map((part) => {
+          const [normal, addition] = part.split(':');
+          return [number(normal, 0), number(addition, 0)] as [number, number];
+        }),
       });
-    } else if ((type & 1) !== 0) hitObjects.push({ ...base, kind: 'circle' });
+    } else if ((type & 1) !== 0) hitObjects.push({ ...base, kind: 'circle', hitSample: sampleField(5) });
   }
   hitObjects.sort((a, b) => a.startTime - b.startTime);
   let backgroundFilename: string | null = null;
@@ -275,8 +324,10 @@ export function parseOsu(text: string): ParsedBeatmap {
     overallDifficulty: number(difficulty.OverallDifficulty, 5),
     sliderMultiplier,
     sliderTickRate,
+    defaultSampleSet: /^soft$/i.test(general.SampleSet ?? '') ? 2 : /^drum$/i.test(general.SampleSet ?? '') ? 3 : 1,
     timingPoints,
     comboColors: comboColors.length ? comboColors : [0x66ccff, 0xff77aa, 0x88dd66, 0xcc88ff],
+    hasComboColours: comboColors.length > 0,
     hitObjects,
     durationMs: Math.max(1, ...hitObjects.map((object) => object.endTime + 1200)),
   };

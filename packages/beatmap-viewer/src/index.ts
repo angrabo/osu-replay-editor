@@ -2,6 +2,13 @@ export type { ParsedBeatmap, HitObject, HitCircle, HitSlider, HitSpinner, Timing
 export { parseOsu, approachPreempt, applyPreviewMods } from './parser';
 export { PixiBeatmapViewer, CAPTURE_SCALE } from './viewer';
 export { sliderBreaks, type SliderBreak } from './tracking';
+export {
+  buildHitsoundEvents,
+  sampleCandidates,
+  type HitsoundEvent,
+  type HitsoundSample,
+  type HitsoundPart,
+} from './hitsounds';
 export { SPEED_STOPS, speedColor } from './speed';
 export { replayPointAt } from './replay';
 export {
@@ -52,6 +59,19 @@ export type PreviewJudgement = {
 };
 export { DEFAULT_CURSOR_LAYER_ORDER, normalizeCursorLayerOrder, type CursorLayerId } from './layers';
 import type { CursorLayerId } from './layers';
+// An osu! skin prepared for the playfield: textures by element name (e.g. "hitcircle",
+// "default-3", "cursor"), whether each is an @2x image, and the skin.ini values the playfield uses.
+// `circles` / `cursor` say which parts are drawn from it.
+export type ViewerSkin = {
+  textures: Record<string, { texture: import('pixi.js').Texture; hd: boolean }>;
+  comboColours: number[];
+  sliderBorder: number | null;
+  sliderTrack: number | null;
+  hitCircleOverlap: number;
+  cursorCentre: boolean;
+  circles: boolean;
+  cursor: boolean;
+};
 export type ViewerOptions = {
   showCursorTrail: boolean;
   showCursorPast: boolean;
@@ -80,6 +100,12 @@ export type ViewerOptions = {
   showSliderEndWindows: boolean;
   // Paint the parts of a slider the cursor did not track in red.
   showSliderTracking: boolean;
+  // Slider ticks disappear once the ball has collected them (per span).
+  hideCollectedTicks: boolean;
+  // The slider body grows out of the head while it fades in (osu!'s snaking in).
+  snakingSliders: boolean;
+  // On the last span the body shrinks behind the ball (osu!'s snaking out).
+  snakingOutSliders: boolean;
   zoom: number;
   cursorTrailMs: number;
   // Hit object picked in the editor (timeline or object list), outlined on the playfield.
@@ -99,6 +125,7 @@ export interface BeatmapViewerAdapter {
   loadBeatmap(source: BeatmapSource): Promise<void>;
   setReplay(replay: PreviewReplay | null): void;
   setGhosts(ghosts: readonly PreviewGhost[]): void;
+  setSkin(skin: ViewerSkin | null): void;
   setJudgements(judgements: readonly PreviewJudgement[] | null): void;
   seek(timeMs: number): void;
   play(): void;

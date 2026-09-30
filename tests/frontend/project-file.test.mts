@@ -52,6 +52,7 @@ const track: Track = {
 const view = {
   playbackRate: 1.5,
   volume: 42,
+  musicVolume: 100,
   showBackground: false,
   backgroundDim: 30,
   showGrid: true,

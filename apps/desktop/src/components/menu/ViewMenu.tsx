@@ -1,3 +1,6 @@
+import { toggleFullscreen } from '../../hooks/useFullscreen';
+import { shortcutLabel } from '../../keybindings';
+
 export function ViewMenu({
   splitView,
   onSingleView,
@@ -18,6 +21,9 @@ export function ViewMenu({
       </button>
       <button role="menuitemradio" aria-checked={splitView} onClick={onSplitView}>
         {splitView ? '✓ ' : ''}Side by side
+      </button>
+      <button role="menuitem" onClick={toggleFullscreen}>
+        Fullscreen playfield {shortcutLabel('toggle-fullscreen') && <kbd>{shortcutLabel('toggle-fullscreen')}</kbd>}
       </button>
       <div className="menu-separator" />
       <button role="menuitem" onClick={onOpenSettings}>

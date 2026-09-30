@@ -5,7 +5,10 @@ import { EditorQuickbar } from './EditorQuickbar';
 import { SimulationOverlay } from './SimulationOverlay';
 import { ToolOptionsBar } from './ToolOptionsBar';
 import { SnapWidget, SnapZoneProvider } from '../../hooks/useSnapDrag';
+import { TextWidgets } from './TextWidgets';
 import { usePanelVisible } from '../../stores/layout';
+import { useIsFullscreen } from '../../hooks/useFullscreen';
+import { FullscreenBar } from './FullscreenBar';
 
 export type PlayfieldSource = 'preview' | 'original' | `track:${string}`;
 
@@ -30,6 +33,7 @@ export function Playfield({
   const simulations = useEditorStore((state) => state.simulationByTrack);
   const toolOptionsVisible = usePanelVisible('toolOptions');
   const simulationVisible = usePanelVisible('simulation');
+  const fullscreen = useIsFullscreen();
   const sourceTrack = (source: PlayfieldSource) => (source.startsWith('track:') ? source.slice(6) : previewId);
   const sourceOriginal = (source: PlayfieldSource) => source === 'original';
   const sourceLabel = (source: PlayfieldSource) =>
@@ -85,6 +89,7 @@ export function Playfield({
           {interactive && <EditorQuickbar />}
           {interactive && toolOptionsVisible && <ToolOptionsBar />}
           {showSimulation && simulationVisible && <SimulationOverlay state={simulations[trackId!]} />}
+          <TextWidgets trackId={trackId} editable={interactive} />
           <SnapWidget id="previewBadge" panel="previewBadge" fallback="bottom-right" className="preview-badge">
             {trackId
               ? `${sourceOriginal(source) ? 'ORIGINAL' : 'REPLAY'} · ${sourceLabel(source)}`
@@ -98,7 +103,7 @@ export function Playfield({
   };
   return (
     <section
-      className="panel playfield"
+      className={`panel playfield${fullscreen ? ' fullscreen' : ''}`}
       onPointerEnter={() => setEditorSurface('gameplay')}
       onPointerDownCapture={() => setEditorSurface('gameplay')}
       onPointerLeave={() => setEditorSurface(null)}
@@ -108,6 +113,7 @@ export function Playfield({
         {pane(leftSource, 'left')}
         {split && pane(rightSource, 'right')}
       </div>
+      {fullscreen && <FullscreenBar />}
     </section>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { adjacentReplayFrameTime, useEditorStore, type Tool } from '../stores/editor';
 import type { AcquisitionAction } from '../MapAcquisition';
 import { jumpTo } from '../navigation';
+import { toggleFullscreen } from './useFullscreen';
 import { actionForEvent, type KeyScope } from '../keybindings';
 
 const playfieldTools: Partial<Record<string, Tool>> = {
@@ -93,6 +94,10 @@ export function useKeyboardShortcuts({
         case 'previous-combo-break':
           event.preventDefault();
           jumpTo('combo-break', action === 'next-combo-break' ? 1 : -1);
+          break;
+        case 'toggle-fullscreen':
+          event.preventDefault();
+          toggleFullscreen();
           break;
         case 'add-marker':
           event.preventDefault();

@@ -1,5 +1,8 @@
+import { useSkinStore } from './stores/skin';
+import { VolumeMenu } from './components/transport/VolumeMenu';
+import { SpeedControl } from './components/transport/SpeedControl';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { AlertCircle, Check, UserRound, Volume2 } from 'lucide-react';
+import { AlertCircle, Check, UserRound } from 'lucide-react';
 import { Timeline } from './timeline/Timeline';
 import { checkSidecar, sidecarRequest } from './sidecar';
 import { MapAcquisition, toMapInfo, type AcquisitionAction, type Resolution, type Session } from './MapAcquisition';
@@ -34,6 +37,7 @@ import { forgetRecentFile, readUserFile, recordRecentFile, type RecentFile } fro
 const PROJECT_VIEW_KEYS: (keyof ProjectView)[] = [
   'playbackRate',
   'volume',
+  'musicVolume',
   'showBackground',
   'backgroundDim',
   'cursorSize',
@@ -70,6 +74,9 @@ function currentProjectView(state: EditorState): ProjectView {
 }
 
 export default function App() {
+  useEffect(() => {
+    void useSkinStore.getState().detect();
+  }, []);
   const playhead = useEditorStore((state) => state.playheadMs);
   const { selectionHeight, beginSelectionResize } = useSelectionHeight();
   const hiddenPanels = useLayoutStore((state) => state.hiddenPanels);
@@ -79,11 +86,7 @@ export default function App() {
   const shown = (panel: PanelId) => visible(panel) && !floatingPanels[panel as FloatablePanelId];
   const durationMs = useEditorStore((state) => state.durationMs);
   const playing = useEditorStore((state) => state.playing);
-  const playbackRate = useEditorStore((state) => state.playbackRate);
-  const volume = useEditorStore((state) => state.volume);
   const setPlaying = useEditorStore((state) => state.setPlaying);
-  const setPlaybackRate = useEditorStore((state) => state.setPlaybackRate);
-  const setVolume = useEditorStore((state) => state.setVolume);
   const undo = useEditorStore((state) => state.undo);
   const redo = useEditorStore((state) => state.redo);
   const [sidecar, setSidecar] = useState<'ready' | 'offline' | 'demo'>('demo');
@@ -385,26 +388,8 @@ export default function App() {
             </span>
             <Transport />
             <div className="center-transport-right">
-              <label className="volume-control" title={`Volume ${volume}%`}>
-                <Volume2 size={16} />
-                <input
-                  aria-label="Volume"
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={volume}
-                  onChange={(event) => setVolume(Number(event.target.value))}
-                />
-                <span>{volume}%</span>
-              </label>
-              <select value={playbackRate} onChange={(event) => setPlaybackRate(Number(event.target.value))}>
-                <option value={0.5}>0.5x</option>
-                <option value={0.75}>0.75x</option>
-                <option value={1}>1.0x</option>
-                <option value={1.5}>1.5x</option>
-                <option value={2}>2.0x</option>
-              </select>
+              <VolumeMenu />
+              <SpeedControl />
             </div>
           </div>
           {shown('timeline') && (

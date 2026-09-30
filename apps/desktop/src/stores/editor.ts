@@ -69,6 +69,22 @@ export type BeatmapTimelineObject = {
   kind: 'circle' | 'slider' | 'spinner';
   x: number;
   y: number;
+  newCombo?: boolean;
+  comboIndex?: number;
+  comboNumber?: number;
+  hitSound?: number;
+  hitSample?: { normalSet: number; additionSet: number; index: number; volume: number; filename: string };
+  slider?: {
+    curveType: string;
+    path: { x: number; y: number }[];
+    repeats: number;
+    pixelLength: number;
+    spanDuration: number;
+    tickDistance: number;
+    edgeSounds: number[];
+    edgeSets: [number, number][];
+  };
+  timing?: { bpm: number | null; sliderVelocity: number; sampleSet: number; volume: number };
 };
 // A user note pinned to a moment on the timeline; saved with the project.
 export type TimelineMarker = { id: string; timeMs: number; note: string };
@@ -121,6 +137,8 @@ export type SimulationResult = {
   countGeki?: number | null;
   countKatu?: number | null;
   perfect?: boolean | null;
+  // Score and combo after every scoring moment (objects, slider ticks/repeats/tails), by time.
+  timeline?: { time: number; score: number; combo: number }[] | null;
 };
 export function simulationMetadataPatch(
   result: SimulationResult,
@@ -144,6 +162,8 @@ export type SimulationRunState = {
   status: 'idle' | 'running' | 'ready' | 'error';
   result: SimulationResult | null;
   error: string;
+  // The result is from before the replay's latest edit: still shown (dimmed) until a new run lands.
+  stale?: boolean;
 };
 type TrackSnapshot = Track[];
 export type MapInfo = { title: string | null; artist: string | null; setId: number | null; version: string | null };
@@ -163,11 +183,20 @@ export type EditorState = {
   playing: boolean;
   playbackRate: number;
   volume: number;
+  // Beatmap audio, relative to the master volume.
+  musicVolume: number;
+  // Master volume to restore after muting from the volume button.
+  mutedVolume: number;
   showBackground: boolean;
   backgroundDim: number;
   cursorSize: number;
   showGrid: boolean;
   compactMode: boolean;
+  // Slider display: hide collected ticks, snaking in, snaking out.
+  hideCollectedTicks: boolean;
+  snakingSliders: boolean;
+  snakingOutSliders: boolean;
+  setSliderDisplay: (option: 'hideCollectedTicks' | 'snakingSliders' | 'snakingOutSliders', enabled: boolean) => void;
   wireframeGameplay: boolean;
   fadeAfterClick: boolean;
   showHitJudgements: boolean;
@@ -202,6 +231,8 @@ export type EditorState = {
   tool: Tool;
   brushRadiusPx: number;
   brushStrength: number;
+  // A brush stroke or node drag is in progress: heavy analyses and the auto-simulation wait for it.
+  liveEdit: boolean;
   magneticMove: boolean;
   snap: Snap;
   selectedInput: InputSelection | null;
@@ -241,6 +272,8 @@ export type EditorState = {
   setPlaying: (playing: boolean) => void;
   setPlaybackRate: (rate: number) => void;
   setVolume: (volume: number) => void;
+  setMusicVolume: (volume: number) => void;
+  setMutedVolume: (volume: number) => void;
   setShowBackground: (show: boolean) => void;
   setBackgroundDim: (dim: number) => void;
   setCursorSize: (percent: number) => void;
@@ -294,6 +327,7 @@ export type EditorState = {
   setTool: (tool: Tool) => void;
   setBrushRadiusPx: (radius: number) => void;
   setBrushStrength: (strength: number) => void;
+  setLiveEdit: (liveEdit: boolean) => void;
   setMagneticMove: (enabled: boolean) => void;
   setSnap: (snap: Snap) => void;
   selectInput: (input: InputSelection | null, additive?: boolean) => void;
@@ -352,11 +386,34 @@ export type EditorState = {
 const initialTracks: Track[] = [];
 const palette = ['#57a5fa', '#53c3ad', '#f2b04c', '#d674ee', '#e66f93', '#8fca63'];
 const volumeStorageKey = 'osu-replay-editor.playback-volume';
+const musicVolumeStorageKey = 'osu-replay-editor.music-volume';
+function readMusicVolume(): number {
+  try {
+    const saved = Number(localStorage.getItem(musicVolumeStorageKey) ?? 100);
+    return Number.isFinite(saved) && saved >= 0 && saved <= 100 ? saved : 100;
+  } catch {
+    return 100;
+  }
+}
 const backgroundStorageKey = 'osu-replay-editor.playfield-background';
 const dimStorageKey = 'osu-replay-editor.playfield-dim';
 const cursorSizeStorageKey = 'osu-replay-editor.cursor-size';
 const gridStorageKey = 'osu-replay-editor.playfield-grid';
 const compactModeStorageKey = 'osu-replay-editor.playfield-compact-mode';
+const sliderDisplayStorageKey = 'osu-replay-editor.slider-display';
+const sliderDisplayDefaults = { hideCollectedTicks: true, snakingSliders: true, snakingOutSliders: false };
+function readSliderDisplay(): typeof sliderDisplayDefaults {
+  try {
+    const saved = JSON.parse(localStorage.getItem(sliderDisplayStorageKey) ?? '{}');
+    return {
+      hideCollectedTicks: typeof saved.hideCollectedTicks === 'boolean' ? saved.hideCollectedTicks : true,
+      snakingSliders: typeof saved.snakingSliders === 'boolean' ? saved.snakingSliders : true,
+      snakingOutSliders: typeof saved.snakingOutSliders === 'boolean' ? saved.snakingOutSliders : false,
+    };
+  } catch {
+    return sliderDisplayDefaults;
+  }
+}
 const gameplayFilterStorageKeys = {
   wireframeGameplay: 'osu-replay-editor.filter-wireframe',
   fadeAfterClick: 'osu-replay-editor.filter-fade-after-click',
@@ -849,17 +906,27 @@ export function nearestReplayFrameTime(frames: readonly ReplayFrame[], timeMs: n
   return timeMs - before <= after - timeMs ? before : after;
 }
 
+/// Simulations after a track change: removed tracks lose theirs, edited replays keep their last
+/// result marked stale so it can stay on screen until the next run.
+function staleSimulations(state: EditorState, next: readonly Track[]): Record<string, SimulationRunState> {
+  const simulations: Record<string, SimulationRunState> = {};
+  for (const [id, simulation] of Object.entries(state.simulationByTrack)) {
+    const before = state.tracks.find((track) => track.id === id);
+    const after = next.find((track) => track.id === id);
+    if (!after) continue;
+    if (before?.replay === after.replay) simulations[id] = simulation;
+    else if (simulation.result) simulations[id] = { ...simulation, stale: true };
+  }
+  return simulations;
+}
+
+export const MIN_PLAYBACK_RATE = 0.001;
+export const MAX_PLAYBACK_RATE = 5;
+
 function changeTracks(state: EditorState, next: Track[]): Partial<EditorState> {
-  const simulationByTrack = Object.fromEntries(
-    Object.entries(state.simulationByTrack).filter(([id]) => {
-      const before = state.tracks.find((track) => track.id === id);
-      const after = next.find((track) => track.id === id);
-      return before?.replay === after?.replay;
-    }),
-  );
   return {
     tracks: next,
-    simulationByTrack,
+    simulationByTrack: staleSimulations(state, next),
     undoStack: [...state.undoStack.slice(-99), snapshot(state.tracks)],
     redoStack: [],
   };
@@ -880,6 +947,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   playing: false,
   playbackRate: 1,
   volume: readSavedVolume(),
+  musicVolume: readMusicVolume(),
+  ...readSliderDisplay(),
+  mutedVolume: 0,
   ...readPlayfieldPreferences(),
   ...readCursorEditingPreferences(),
   editorSurface: null,
@@ -900,6 +970,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   tool: 'select',
   brushRadiusPx: 40,
   brushStrength: 0.35,
+  liveEdit: false,
   magneticMove: false,
   snap: 'off',
   selectedInput: null,
@@ -1154,13 +1225,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   undo: () =>
     set((state) => {
       if (!state.undoStack.length) return {};
-      const previous = state.undoStack.at(-1)!;
+      const tracks = snapshot(state.undoStack.at(-1)!);
       return {
-        tracks: snapshot(previous),
+        tracks,
         selectedInput: null,
         selectedInputs: [],
         selectedTimeRange: null,
-        simulationByTrack: {},
+        simulationByTrack: staleSimulations(state, tracks),
         undoStack: state.undoStack.slice(0, -1),
         redoStack: [...state.redoStack, snapshot(state.tracks)],
       };
@@ -1168,13 +1239,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   redo: () =>
     set((state) => {
       if (!state.redoStack.length) return {};
-      const next = state.redoStack.at(-1)!;
+      const tracks = snapshot(state.redoStack.at(-1)!);
       return {
-        tracks: snapshot(next),
+        tracks,
         selectedInput: null,
         selectedInputs: [],
         selectedTimeRange: null,
-        simulationByTrack: {},
+        simulationByTrack: staleSimulations(state, tracks),
         redoStack: state.redoStack.slice(0, -1),
         undoStack: [...state.undoStack, snapshot(state.tracks)],
       };
@@ -1189,7 +1260,36 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return { durationMs, playheadMs: Math.min(state.playheadMs, durationMs) };
     }),
   setPlaying: (playing) => set({ playing }),
-  setPlaybackRate: (rate) => set({ playbackRate: rate }),
+  setPlaybackRate: (rate) => {
+    if (Number.isFinite(rate)) set({ playbackRate: Math.max(MIN_PLAYBACK_RATE, Math.min(MAX_PLAYBACK_RATE, rate)) });
+  },
+  setMusicVolume: (volume) => {
+    if (!Number.isFinite(volume)) return;
+    const musicVolume = Math.max(0, Math.min(100, Math.round(volume)));
+    try {
+      localStorage.setItem(musicVolumeStorageKey, String(musicVolume));
+    } catch {
+      /* Playback still works without persistence. */
+    }
+    set({ musicVolume });
+  },
+  setMutedVolume: (mutedVolume) => set({ mutedVolume }),
+  setSliderDisplay: (option, enabled) => {
+    set({ [option]: enabled } as Pick<EditorState, typeof option>);
+    const state = get();
+    try {
+      localStorage.setItem(
+        sliderDisplayStorageKey,
+        JSON.stringify({
+          hideCollectedTicks: state.hideCollectedTicks,
+          snakingSliders: state.snakingSliders,
+          snakingOutSliders: state.snakingOutSliders,
+        }),
+      );
+    } catch {
+      /* The current session remains usable. */
+    }
+  },
   setVolume: (volume) => {
     if (!Number.isFinite(volume)) return;
     const value = Math.max(0, Math.min(100, Math.round(volume)));
@@ -1343,7 +1443,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setEditingMarker: (editingMarkerId) => set({ editingMarkerId }),
   setSimulationRunning: (trackId) =>
     set((state) => ({
-      simulationByTrack: { ...state.simulationByTrack, [trackId]: { status: 'running', result: null, error: '' } },
+      simulationByTrack: {
+        ...state.simulationByTrack,
+        // The previous result stays up (dimmed) while the new one is computed.
+        [trackId]: {
+          status: 'running',
+          result: state.simulationByTrack[trackId]?.result ?? null,
+          error: '',
+          stale: !!state.simulationByTrack[trackId]?.result,
+        },
+      },
     })),
   setSimulationResult: (trackId, result) =>
     set((state) => ({
@@ -1419,6 +1528,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setBrushRadiusPx: (radius) => set({ brushRadiusPx: Math.max(4, Math.min(200, radius)) }),
   setBrushStrength: (strength) =>
     set({ brushStrength: Number.isFinite(strength) ? Math.max(0.05, Math.min(1, strength)) : 0.35 }),
+  setLiveEdit: (liveEdit) => {
+    if (get().liveEdit !== liveEdit) set({ liveEdit });
+  },
   setMagneticMove: (magneticMove) => set({ magneticMove }),
   setSnap: (snap) => set({ snap }),
   selectInput: (input, additive = false) =>
@@ -1793,7 +1905,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const tracks = state.tracks.map((item) =>
         item.id === trackId ? { ...item, edited: true, replay: { ...item.replay, frames } } : item,
       );
-      return { tracks, simulationByTrack: {}, playing: false };
+      return { tracks, simulationByTrack: staleSimulations(state, tracks), playing: false };
     }),
   applyBrushDab: (trackId, centerX, centerY, radiusPx, deltaX, deltaY, minMs, maxMs, selectedFrameTimes) =>
     set((state) => {
@@ -1814,7 +1926,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const tracks = state.tracks.map((item) =>
         item.id === trackId ? { ...item, edited: true, replay: { ...item.replay, frames } } : item,
       );
-      return { tracks, simulationByTrack: {}, lastEditMessage: `Brushed cursor path on ${track.name}.` };
+      return {
+        tracks,
+        simulationByTrack: staleSimulations(state, tracks),
+        lastEditMessage: `Brushed cursor path on ${track.name}.`,
+      };
     }),
   interpolateCursorRange: (trackId, startTime, endTime) =>
     set((state) => {

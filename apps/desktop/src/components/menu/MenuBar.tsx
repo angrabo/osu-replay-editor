@@ -212,7 +212,7 @@ export function MenuBar({
         <button aria-haspopup="menu" aria-expanded={menuOpen === 'window'} onFocus={() => setMenuOpen('window')}>
           Window
         </button>
-        {menuOpen === 'window' && <WindowMenu />}
+        {menuOpen === 'window' && <WindowMenu onClose={() => setMenuOpen(null)} />}
       </div>
     </nav>
   );

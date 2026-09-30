@@ -1,11 +1,13 @@
 import { shortcutLabel } from '../../keybindings';
-import { Copy, Plus, Scissors, Sparkles, Trash2 } from 'lucide-react';
+import { Copy, Plus, Scissors, Sparkles, SquareArrowOutUpRight, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { formatTime, type InputKey, useEditorStore } from '../../stores/editor';
 import { Field } from '../common/Field';
 import { InfoTip } from '../InfoTip';
 import { PanelCloseButton } from '../common/PanelCloseButton';
 import { PanelPopOutButton } from '../common/FloatingPanel';
+import { ObjectDetailsDialog } from '../explorer/ObjectDetailsDialog';
+import { lowerBound } from '../../timeline/useTimelineCanvas';
 
 const inputKeys: InputKey[] = ['M1', 'M2', 'K1', 'K2'];
 const shiftSteps = [-10, -5, -1, 1, 5, 10];
@@ -40,6 +42,7 @@ export function SelectionPanel() {
   const interpolateCursorRange = useEditorStore((state) => state.interpolateCursorRange);
   const smoothCursorRange = useEditorStore((state) => state.smoothCursorRange);
   const [customShift, setCustomShift] = useState('17');
+  const [detailsIndex, setDetailsIndex] = useState<number | null>(null);
 
   const firstInput = selectedInputs[0] ?? null;
   const inputStart = selectedInputs.length ? Math.min(...selectedInputs.map((item) => item.startTime)) : 0;
@@ -52,8 +55,10 @@ export function SelectionPanel() {
   const cursorTrack = tracks.find((track) => track.id === selectedCursorRange?.trackId);
   const cursorFrames =
     selectedCursorRange && cursorTrack
-      ? cursorTrack.replay.frames.filter(
-          (frame) => frame.timeMs >= selectedCursorRange.startMs && frame.timeMs <= selectedCursorRange.endMs,
+      ? cursorTrack.replay.frames.slice(
+          lowerBound(cursorTrack.replay.frames, selectedCursorRange.startMs),
+          // Frame times are whole milliseconds.
+          lowerBound(cursorTrack.replay.frames, Math.floor(selectedCursorRange.endMs) + 1),
         )
       : [];
   const changeInputKey = (key: InputKey) =>
@@ -236,20 +241,29 @@ export function SelectionPanel() {
         )}
 
         {!selectedInputs.length && !selectedCursorRange && selectedObject && (
-          <>
-            <div className="selection-summary">
+          <div className="selection-object-details">
+            <div className="selection-summary selection-object-summary">
               <strong>
                 {selectedObject.kind} #{selectedObjectIndex! + 1}
               </strong>
               <span>Beatmap object · read only</span>
             </div>
-            <Field label="Time" value={`${formatTime(selectedObject.startTime)} (${selectedObject.startTime} ms)`} />
+            <Field
+              label="Start"
+              value={`${formatTime(Math.round(selectedObject.startTime))} · ${Math.round(selectedObject.startTime)} ms`}
+            />
             {selectedObject.endTime !== selectedObject.startTime && (
-              <Field label="End" value={`${formatTime(selectedObject.endTime)} (${selectedObject.endTime} ms)`} />
+              <Field
+                label="End"
+                value={`${formatTime(Math.round(selectedObject.endTime))} · ${Math.round(selectedObject.endTime)} ms`}
+              />
             )}
             <Field label="Position" value={`${selectedObject.x.toFixed(0)} / ${selectedObject.y.toFixed(0)}`} />
-            <Field label="Duration" value={`${selectedObject.endTime - selectedObject.startTime} ms`} />
-          </>
+            <Field label="Duration" value={`${Math.round(selectedObject.endTime - selectedObject.startTime)} ms`} />
+            <button className="object-details-selection-button" onClick={() => setDetailsIndex(selectedObjectIndex)}>
+              <SquareArrowOutUpRight size={13} /> Open object details
+            </button>
+          </div>
         )}
 
         {!selectedInputs.length && !selectedCursorRange && !selectedObject && (
@@ -282,6 +296,13 @@ export function SelectionPanel() {
         )}
         {message && <div className="tool-message">{message}</div>}
       </div>
+      {detailsIndex !== null && (
+        <ObjectDetailsDialog
+          index={detailsIndex}
+          onIndexChange={setDetailsIndex}
+          onClose={() => setDetailsIndex(null)}
+        />
+      )}
     </section>
   );
 }

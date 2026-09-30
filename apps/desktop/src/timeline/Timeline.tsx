@@ -25,7 +25,8 @@ import { TimelineInputNode, type TimelineInputItem } from './TimelineInputNode';
 import { useTimelineCanvas, lanes, rulerHeight, rulerStepsMs, numericColor } from './useTimelineCanvas';
 import { useInputDrag } from './useInputDrag';
 import { useLaneResize } from './useLaneResize';
-import { HitObjectTooltip } from './HitObjectHover';
+import { HitObjectTooltip, type AimInfo } from './HitObjectHover';
+import { replayPointAt } from '@ore/beatmap-viewer';
 import { TimelineMarkers } from './TimelineMarkers';
 import { useMissAnalysis } from '../missAnalysis';
 import { actionForEvent } from '../keybindings';
@@ -71,6 +72,35 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
   const hitWindows = useEditorStore((state) => state.hitWindows);
   const sliderBreaks = useEditorStore((state) => state.sliderBreaks);
   const misses = useMissAnalysis();
+  const circleRadius = useEditorStore((state) => state.circleRadius);
+  // Cursor position relative to an object when it was hit (or, for a miss, around its time).
+  const aimFor = (index: number): AimInfo | null => {
+    const object = beatmapObjects[index];
+    const track = tracks.find((item) => item.id === previewTrackId);
+    if (!object || !track || circleRadius === null || object.kind === 'spinner') return null;
+    const hardRock = (track.exportMetadata.mods & 16) !== 0;
+    const centre = { x: object.x, y: hardRock ? 384 - object.y : object.y };
+    const offset = (time: number) => {
+      const cursor = replayPointAt(track.replay.frames, time);
+      return cursor ? { dx: cursor.x - centre.x, dy: cursor.y - centre.y } : null;
+    };
+    const judgement = judgementFor(index);
+    if (judgement?.hitTime != null) {
+      const hit = offset(judgement.hitTime);
+      return hit ? { radius: circleRadius, result: judgement.result, points: [{ ...hit, kind: 'hit' }] } : null;
+    }
+    const window = hitWindows?.meh ?? 150;
+    const presses = track.replay.keyEvents
+      .filter(
+        (event) => event.down && event.timeMs >= object.startTime - 400 && event.timeMs <= object.startTime + window,
+      )
+      .map((event) => offset(event.timeMs))
+      .filter((point): point is { dx: number; dy: number } => point !== null)
+      .map((point) => ({ ...point, kind: 'press' as const }));
+    const cursor = offset(object.startTime);
+    const points = presses.length ? presses : cursor ? [{ ...cursor, kind: 'cursor' as const }] : [];
+    return points.length ? { radius: circleRadius, result: judgement?.result ?? null, points } : null;
+  };
   const showCursorSpeed = useEditorStore((state) => state.showCursorSpeed);
   const previewTrackId = useEditorStore((state) => state.previewTrackId);
   const [contextMenu, setContextMenu] = useState<TimelineContextMenuState | null>(null);
@@ -934,6 +964,7 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
               judgement={judgementFor(objectHover.index)}
               sliderBreak={sliderBreaks.find((item) => item.objectIndex === objectHover.index) ?? null}
               missCause={misses?.find((item) => item.objectIndex === objectHover.index)?.cause ?? null}
+              aim={aimFor(objectHover.index)}
               windows={hitWindows}
               x={objectHover.x}
               y={objectHover.y}
