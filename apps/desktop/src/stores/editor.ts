@@ -214,7 +214,7 @@ export type EditorState = {
   selectedCursorFrameTimes: number[];
   inputKey: InputKey;
   inputDragMode: InputDragMode;
-  filesTab: 'objects' | 'replay';
+  filesTab: 'objects' | 'replay' | 'markers';
   inspectorTab: 'inspector' | 'mods' | 'metadata';
   selectTrack: (id: string, ctrl: boolean, shift: boolean) => void;
   setPreviewTrack: (id: string | null) => void;

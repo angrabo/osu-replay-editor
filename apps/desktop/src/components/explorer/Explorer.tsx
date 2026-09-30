@@ -1,3 +1,4 @@
+import { MarkerList } from './MarkerList';
 import { useEffect, useState } from 'react';
 import { replayPointAt } from '@ore/beatmap-viewer';
 import { AlertTriangle, ChevronDown, File, Folder, Search, Trash2 } from 'lucide-react';
@@ -107,6 +108,7 @@ export function Explorer({
   const [hover, setHover] = useState<HoverPreview | null>(null);
   const [pendingRemove, setPendingRemove] = useState<string | null>(null);
   const removeTracks = useEditorStore((state) => state.removeTracks);
+  const markerCount = useEditorStore((state) => state.markers.length);
   const previewTrack = tracks.find((track) => track.id === previewTrackId);
   // Map coordinates are stored unflipped; HR mirrors the playfield vertically, like the replay frames.
   const hardRock = ((previewTrack?.exportMetadata.mods ?? 0) & 16) !== 0;
@@ -160,6 +162,9 @@ export function Explorer({
         <TabButton active={tab === 'replay'} onClick={() => setTab('replay')}>
           Replays
         </TabButton>
+        <TabButton active={tab === 'markers'} onClick={() => setTab('markers')}>
+          Markers{markerCount ? ` ${markerCount}` : ''}
+        </TabButton>
         <PanelPopOutButton panel="explorer" className="in-tabs" />
         <PanelCloseButton panel="explorer" className="in-tabs tight" />
       </div>
@@ -167,100 +172,104 @@ export function Explorer({
         <Search size={14} />
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search..." />
       </label>
-      <div className="file-tree">
-        {rows
-          .filter((row) => !search || row.label.toLowerCase().includes(search.toLowerCase()))
-          .map((row, index) => {
-            const active =
-              row.objectIndex !== undefined
-                ? selectedBeatmapObjectIndex === row.objectIndex
-                : selectedFile === row.label;
-            const rowKey = `${row.type}:${row.trackIds?.join(',') ?? row.label}`;
-            const armed = pendingRemove === rowKey;
-            return (
-              <div
-                className="file-row-wrap"
-                key={`${row.label}-${index}`}
-                onMouseLeave={() => {
-                  if (armed) setPendingRemove(null);
-                }}
-              >
-                <button
-                  className={`file-row ${active ? 'selected' : ''}`}
-                  style={{ paddingLeft: 12 + row.depth * 19 }}
-                  onClick={() => {
-                    setSelectedFile(row.label);
-                    row.onClick?.();
+      {tab === 'markers' ? (
+        <MarkerList search={search} />
+      ) : (
+        <div className="file-tree">
+          {rows
+            .filter((row) => !search || row.label.toLowerCase().includes(search.toLowerCase()))
+            .map((row, index) => {
+              const active =
+                row.objectIndex !== undefined
+                  ? selectedBeatmapObjectIndex === row.objectIndex
+                  : selectedFile === row.label;
+              const rowKey = `${row.type}:${row.trackIds?.join(',') ?? row.label}`;
+              const armed = pendingRemove === rowKey;
+              return (
+                <div
+                  className="file-row-wrap"
+                  key={`${row.label}-${index}`}
+                  onMouseLeave={() => {
+                    if (armed) setPendingRemove(null);
                   }}
-                  onMouseEnter={(event) => {
-                    if (!row.object) return;
-                    const box = event.currentTarget.getBoundingClientRect();
-                    setHover({ object: row.object, top: box.top, left: box.right + 8 });
-                  }}
-                  onMouseLeave={() => setHover(null)}
                 >
-                  {row.type === 'folder' ? (
-                    <>
-                      <ChevronDown size={12} />
-                      <Folder size={15} fill="#efd099" color="#efd099" />
-                    </>
-                  ) : (
-                    <>
-                      <span className="tree-spacer" />
-                      <File size={14} fill="#dce2ea" color="#dce2ea" />
-                    </>
-                  )}
-                  <span>{row.label}</span>
-                  {row.hasError && (
-                    <span
-                      title="Beatmap failed to load"
-                      style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center' }}
-                    >
-                      <AlertTriangle size={13} color="#f2b880" />
-                    </span>
-                  )}
-                </button>
-                {row.trackIds?.length ? (
                   <button
-                    type="button"
-                    className={`file-row-remove${armed ? ' armed' : ''}`}
-                    title={
-                      armed
-                        ? 'Click again to remove'
-                        : row.type === 'folder'
-                          ? `Remove all ${row.trackIds.length} replays of this map from the project`
-                          : 'Remove replay from the project'
-                    }
-                    aria-label={row.type === 'folder' ? 'Remove map replays' : 'Remove replay'}
+                    className={`file-row ${active ? 'selected' : ''}`}
+                    style={{ paddingLeft: 12 + row.depth * 19 }}
                     onClick={() => {
-                      if (!armed) {
-                        setPendingRemove(rowKey);
-                        return;
-                      }
-                      setPendingRemove(null);
-                      removeTracks(row.trackIds!);
+                      setSelectedFile(row.label);
+                      row.onClick?.();
                     }}
+                    onMouseEnter={(event) => {
+                      if (!row.object) return;
+                      const box = event.currentTarget.getBoundingClientRect();
+                      setHover({ object: row.object, top: box.top, left: box.right + 8 });
+                    }}
+                    onMouseLeave={() => setHover(null)}
                   >
-                    <Trash2 size={12} />
-                    {armed && <span>Remove</span>}
+                    {row.type === 'folder' ? (
+                      <>
+                        <ChevronDown size={12} />
+                        <Folder size={15} fill="#efd099" color="#efd099" />
+                      </>
+                    ) : (
+                      <>
+                        <span className="tree-spacer" />
+                        <File size={14} fill="#dce2ea" color="#dce2ea" />
+                      </>
+                    )}
+                    <span>{row.label}</span>
+                    {row.hasError && (
+                      <span
+                        title="Beatmap failed to load"
+                        style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center' }}
+                      >
+                        <AlertTriangle size={13} color="#f2b880" />
+                      </span>
+                    )}
                   </button>
-                ) : null}
-              </div>
-            );
-          })}
-        {tab === 'objects' && remainingObjects > 0 && (
-          <button
-            className="file-row"
-            style={{ paddingLeft: 12, fontStyle: 'italic', opacity: 0.75 }}
-            onClick={() => setVisibleObjectCount((count) => count + OBJECT_PAGE_SIZE)}
-          >
-            <span className="tree-spacer" />
-            <span>
-              Show {Math.min(OBJECT_PAGE_SIZE, remainingObjects)} more ({remainingObjects} left)
-            </span>
-          </button>
-        )}
-      </div>
+                  {row.trackIds?.length ? (
+                    <button
+                      type="button"
+                      className={`file-row-remove${armed ? ' armed' : ''}`}
+                      title={
+                        armed
+                          ? 'Click again to remove'
+                          : row.type === 'folder'
+                            ? `Remove all ${row.trackIds.length} replays of this map from the project`
+                            : 'Remove replay from the project'
+                      }
+                      aria-label={row.type === 'folder' ? 'Remove map replays' : 'Remove replay'}
+                      onClick={() => {
+                        if (!armed) {
+                          setPendingRemove(rowKey);
+                          return;
+                        }
+                        setPendingRemove(null);
+                        removeTracks(row.trackIds!);
+                      }}
+                    >
+                      <Trash2 size={12} />
+                      {armed && <span>Remove</span>}
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+          {tab === 'objects' && remainingObjects > 0 && (
+            <button
+              className="file-row"
+              style={{ paddingLeft: 12, fontStyle: 'italic', opacity: 0.75 }}
+              onClick={() => setVisibleObjectCount((count) => count + OBJECT_PAGE_SIZE)}
+            >
+              <span className="tree-spacer" />
+              <span>
+                Show {Math.min(OBJECT_PAGE_SIZE, remainingObjects)} more ({remainingObjects} left)
+              </span>
+            </button>
+          )}
+        </div>
+      )}
       {hover && (
         <div
           className="object-hover-preview"
