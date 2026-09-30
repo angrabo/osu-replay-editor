@@ -14,9 +14,10 @@ internal sealed class StableScoreV2Model : ScoreModel
     public override string PrimaryWarning =>
         "Stable ScoreV2 uses a normalized combo and accuracy model; slider and spinner details remain estimates. Nothing is submitted to osu!.";
 
-    public (long Score, int MaximumCombo, int EndingCombo, long[] ScoreAfter) Compute(
+    public (long Score, int MaximumCombo, int EndingCombo, long[] ScoreAfter, ScorePoint[] Timeline) Compute(
         IEnumerable<StableScoreEvent> events, IReadOnlyList<ObjectJudgement> judgements, double scoreMultiplier)
     {
+        var timeline = new List<ScorePoint>();
         var orderedEvents = events.OrderBy(item => item.Time).ThenBy(item => item.Order).ToArray();
         var maximumComboBonus = MaximumComboBonus(orderedEvents);
 
@@ -44,6 +45,8 @@ internal sealed class StableScoreV2Model : ScoreModel
             accuracyEarned += judgements[index].Value;
             nextJudgement++;
             scoreAfter[index] = CurrentScore();
+            // The accuracy portion grows once the object is complete.
+            timeline.Add(new ScorePoint(judgements[index].EndTime, scoreAfter[index], combo));
         }
 
         foreach (var item in orderedEvents)
@@ -68,12 +71,18 @@ internal sealed class StableScoreV2Model : ScoreModel
             {
                 combo = 0;
             }
+            else
+            {
+                continue;
+            }
+
+            timeline.Add(new ScorePoint(item.ShownAt, CurrentScore(), combo));
         }
 
         while (nextJudgement < judgementOrder.Length)
             CompleteJudgement();
 
-        return (CurrentScore(), maximumCombo, combo, scoreAfter);
+        return (CurrentScore(), maximumCombo, combo, scoreAfter, timeline.ToArray());
     }
 
     private static double MaximumComboBonus(IEnumerable<StableScoreEvent> orderedEvents)

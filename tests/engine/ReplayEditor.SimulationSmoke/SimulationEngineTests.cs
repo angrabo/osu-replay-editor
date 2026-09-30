@@ -42,6 +42,11 @@ public sealed class SimulationEngineTests
         Assert.True(lazerResult.Client == "lazer" && lazerResult.Model == "editor-lazer-v1" && lazerResult.Judgements.Length == 4,
             "expected dedicated lazer simulation");
         Assert.True(lazerResult.Score is >= 0 and <= 1_000_000, "expected normalized lazer score");
+        foreach (var live in new[] { result, lazerResult })
+            Assert.True(live.Timeline is { Length: 4 } timeline && timeline[^1].Score == live.Score
+                && timeline.Select(point => point.Combo).SequenceEqual(new[] { 1, 2, 3, 0 })
+                && timeline.Zip(timeline.Skip(1)).All(pair => pair.First.Time <= pair.Second.Time),
+                $"expected a {live.Client} live timeline ending at the final score");
 
         Assert.True(result.Count300 == 1, "expected one 300");
         Assert.True(result.Count100 == 1, "expected one 100");

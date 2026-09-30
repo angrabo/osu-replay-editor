@@ -47,4 +47,9 @@ public sealed record SimulationResult(
     int SpinnerBonusTotal,
     int? CountGeki = null,
     int? CountKatu = null,
-    bool? Perfect = null);
+    bool? Perfect = null,
+    ScorePoint[]? Timeline = null);
+
+/// Score and combo right after one scoring moment (an object, slider tick/repeat/tail or spinner
+/// bonus), in time order, so a live display can follow every step.
+public sealed record ScorePoint(double Time, long Score, int Combo);

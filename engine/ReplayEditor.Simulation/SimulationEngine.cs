@@ -184,6 +184,7 @@ public static class SimulationEngine
             var stableObjectUnlockTime = start;
             var sliderHeadValue = 0;
             (double Time, int Score, bool Hit)[] sliderParts = [];
+            long objectBonus = 0;
             var distance = double.PositiveInfinity;
             var inside = false;
 
@@ -197,6 +198,7 @@ public static class SimulationEngine
                 distance = 0;
                 inside = spinner.Completion > 0;
                 bonusScore += spinner.BonusScore;
+                objectBonus = spinner.BonusScore;
                 spinnerSpins += spinner.Turns;
                 spinnerSpinsHit += spinner.SpinHits;
                 spinnerSpinsTotal += spinner.SpinTotal;
@@ -261,9 +263,11 @@ public static class SimulationEngine
             }
 
             // Circles/slider heads are judged when hit, or as a miss once their hit window closes.
-            var judged = (item.Kind == "spinner" ? end : hitTime ?? start + hitWindow50) <= judgedUntil;
+            var judgedAt = item.Kind == "spinner" ? end : hitTime ?? start + hitWindow50;
+            var judged = judgedAt <= judgedUntil;
             if (isLazer)
-                RecordLazerObjectEvents(lazerScoreEvents, item, sliderParts, objectIndex, start, value, judged, judgedUntil);
+                RecordLazerObjectEvents(lazerScoreEvents, item, sliderParts, objectIndex, start, value, judged, judgedUntil,
+                    judgedAt, objectBonus);
 
             if (!judged)
             {
@@ -276,7 +280,7 @@ public static class SimulationEngine
                     combo = 0;
                 if (!isLazer && item.Kind != "slider")
                     stableScoreEvents.Add(new StableScoreEvent(item.Kind == "spinner" ? end : start, objectIndex * 10_000 + 9_999,
-                        0, false, false, true, true, 300, item.Kind != "slider"));
+                        0, false, false, true, true, 300, item.Kind != "slider", DisplayTime: judgedAt));
             }
             else
             {
@@ -289,7 +293,8 @@ public static class SimulationEngine
 
                 if (!isLazer)
                     stableScoreEvents.Add(new StableScoreEvent(item.Kind == "circle" ? start : end, objectIndex * 10_000 + 9_999,
-                        value, true, item.Kind != "slider", true, true, 300));
+                        value, true, item.Kind != "slider", true, true, 300,
+                        DisplayTime: item.Kind == "circle" ? judgedAt : double.NaN));
                 if (item.Kind != "slider")
                 {
                     combo++;
@@ -320,7 +325,7 @@ public static class SimulationEngine
             ? 1
             : (double)lazerJudgementsMade / lazerJudgementsTotal;
         var model = ApplyScoreModel(isLazer, stableScoreV2, lazerScoreEvents, stableScoreEvents, judgements, map.DifficultyMultiplier,
-            accuracy, bonusScore, scoreMultiplier, out combo, out maxCombo, out score, accuracyProgress);
+            accuracy, bonusScore, scoreMultiplier, out combo, out maxCombo, out score, out var timeline, accuracyProgress);
 
         var warnings = BuildWarnings(model, map, mods);
         if (!double.IsPositiveInfinity(judgedUntil))
@@ -331,7 +336,9 @@ public static class SimulationEngine
         return new SimulationResult("whole-replay", model.Name, "estimate", score, Math.Round(accuracy * 100, 4),
             n300, n100, n50, misses, maxCombo, combo, total, judgements.ToArray(), warnings.ToArray(), client, bonusScore, Math.Round(spinnerSpins, 3),
             sliderTicksHit, sliderTicksTotal, sliderEndsHit, sliderEndsTotal,
-            spinnerSpinsHit, spinnerSpinsTotal, spinnerBonusHit, spinnerBonusTotal, geki, katu, perfect);
+            spinnerSpinsHit, spinnerSpinsTotal, spinnerBonusHit, spinnerBonusTotal, geki, katu, perfect,
+            // Shown times can differ slightly from scoring order (a circle shows at its press).
+            timeline.OrderBy(point => point.Time).Select(point => point with { Time = Math.Round(point.Time, 1) }).ToArray());
     }
 
     private static (double Great, double Ok, double Meh) HitWindows(double od, double rate)
@@ -430,12 +437,14 @@ public static class SimulationEngine
     }
 
     private static void RecordLazerObjectEvents(List<LazerScoreEvent> lazerScoreEvents, MapObject item,
-        (double Time, int Score, bool Hit)[] sliderParts, int objectIndex, double start, int value, bool judged, double judgedUntil)
+        (double Time, int Score, bool Hit)[] sliderParts, int objectIndex, double start, int value, bool judged, double judgedUntil,
+        double judgedAt, long bonus)
     {
         // lazer's combo score is accumulated for every scorable judgement in
         // chronological order. The contribution uses the judgement's maximum
         // value (for example a 100 circle still has a maximum value of 300).
-        lazerScoreEvents.Add(new LazerScoreEvent(start, objectIndex * 10_000, 300, value > 0, Judged: judged));
+        lazerScoreEvents.Add(new LazerScoreEvent(start, objectIndex * 10_000, 300, value > 0, Judged: judged,
+            Value: value, DisplayTime: judgedAt, Bonus: bonus));
         if (item.Kind != "slider")
             return;
 
@@ -475,7 +484,7 @@ public static class SimulationEngine
     private static ScoreModel ApplyScoreModel(bool isLazer, bool stableScoreV2, List<LazerScoreEvent> lazerScoreEvents,
         List<StableScoreEvent> stableScoreEvents, List<ObjectJudgement> judgements, int difficultyMultiplier,
         double accuracy, long bonusScore, double scoreMultiplier, out int combo, out int maxCombo, out long score,
-        double accuracyProgress = 1)
+        out ScorePoint[] timeline, double accuracyProgress = 1)
     {
         var multiplier = Math.Max(0, scoreMultiplier);
 
@@ -486,6 +495,7 @@ public static class SimulationEngine
             combo = result.EndingCombo;
             maxCombo = result.MaximumCombo;
             score = result.Score;
+            timeline = model.Timeline(lazerScoreEvents, multiplier);
             return model;
         }
 
@@ -496,6 +506,7 @@ public static class SimulationEngine
             combo = result.EndingCombo;
             maxCombo = result.MaximumCombo;
             score = result.Score;
+            timeline = result.Timeline;
             for (var i = 0; i < judgements.Count; i++)
                 judgements[i] = judgements[i] with { ScoreAfter = result.ScoreAfter[i] };
             return model;
@@ -506,6 +517,7 @@ public static class SimulationEngine
         combo = v1Result.EndingCombo;
         maxCombo = v1Result.MaximumCombo;
         score = v1Result.Score;
+        timeline = v1Result.Timeline;
         for (var i = 0; i < judgements.Count; i++)
             judgements[i] = judgements[i] with { ScoreAfter = v1Result.ScoreAfter[i] };
         return v1Model;

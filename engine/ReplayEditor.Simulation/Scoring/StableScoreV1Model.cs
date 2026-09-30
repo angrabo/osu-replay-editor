@@ -13,7 +13,7 @@ internal sealed class StableScoreV1Model : ScoreModel
     public override string PrimaryWarning =>
         "ScoreV1 calculation is an estimate until per-object judgements match the imported replay. Nothing is submitted to osu!.";
 
-    public (long Score, int MaximumCombo, int EndingCombo, long[] ScoreAfter) Compute(
+    public (long Score, int MaximumCombo, int EndingCombo, long[] ScoreAfter, ScorePoint[] Timeline) Compute(
         IEnumerable<StableScoreEvent> events, IReadOnlyList<ObjectJudgement> judgements,
         int difficultyMultiplier, double scoreMultiplier)
     {
@@ -22,6 +22,7 @@ internal sealed class StableScoreV1Model : ScoreModel
         var maximumCombo = 0;
         var orderedEvents = events.OrderBy(item => item.Time).ThenBy(item => item.Order).ToArray();
         var scoreAfter = new long[judgements.Count];
+        var timeline = new List<ScorePoint>(orderedEvents.Length);
         var nextJudgement = 0;
         var judgementOrder = Enumerable.Range(0, judgements.Count).OrderBy(index => judgements[index].EndTime).ToArray();
 
@@ -45,11 +46,17 @@ internal sealed class StableScoreV1Model : ScoreModel
             {
                 combo = 0;
             }
+            else
+            {
+                continue;
+            }
+
+            timeline.Add(new ScorePoint(item.ShownAt, score, combo));
         }
 
         while (nextJudgement < judgementOrder.Length)
             scoreAfter[judgementOrder[nextJudgement++]] = score;
 
-        return (score, maximumCombo, combo, scoreAfter);
+        return (score, maximumCombo, combo, scoreAfter, timeline.ToArray());
     }
 }
