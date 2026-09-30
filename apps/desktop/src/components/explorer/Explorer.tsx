@@ -1,4 +1,6 @@
 import { MarkerList } from './MarkerList';
+import { MissList } from './MissList';
+import { useMissAnalysis } from '../../missAnalysis';
 import { useEffect, useState } from 'react';
 import { replayPointAt } from '@ore/beatmap-viewer';
 import { AlertTriangle, ChevronDown, File, Folder, Search, Trash2 } from 'lucide-react';
@@ -109,6 +111,7 @@ export function Explorer({
   const [pendingRemove, setPendingRemove] = useState<string | null>(null);
   const removeTracks = useEditorStore((state) => state.removeTracks);
   const markerCount = useEditorStore((state) => state.markers.length);
+  const misses = useMissAnalysis();
   const previewTrack = tracks.find((track) => track.id === previewTrackId);
   // Map coordinates are stored unflipped; HR mirrors the playfield vertically, like the replay frames.
   const hardRock = ((previewTrack?.exportMetadata.mods ?? 0) & 16) !== 0;
@@ -165,6 +168,9 @@ export function Explorer({
         <TabButton active={tab === 'markers'} onClick={() => setTab('markers')}>
           Markers{markerCount ? ` ${markerCount}` : ''}
         </TabButton>
+        <TabButton active={tab === 'misses'} onClick={() => setTab('misses')}>
+          Misses{misses?.length ? ` ${misses.length}` : ''}
+        </TabButton>
         <PanelPopOutButton panel="explorer" className="in-tabs" />
         <PanelCloseButton panel="explorer" className="in-tabs tight" />
       </div>
@@ -174,6 +180,8 @@ export function Explorer({
       </label>
       {tab === 'markers' ? (
         <MarkerList search={search} />
+      ) : tab === 'misses' ? (
+        <MissList misses={misses} search={search} />
       ) : (
         <div className="file-tree">
           {rows

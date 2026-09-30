@@ -133,6 +133,8 @@ export function BeatmapCanvas({
   const showInputPaths = useEditorStore((state) => state.showInputPaths);
   const showCursorSpeed = useEditorStore((state) => state.showCursorSpeed);
   const showFrameMarkers = useEditorStore((state) => state.showFrameMarkers);
+  const showGhostCursors = useEditorStore((state) => state.showGhostCursors);
+  const allTracks = useEditorStore((state) => state.tracks);
   const cursorLayerOrder = useEditorStore((state) => state.cursorLayerOrder);
   const showClickMarkers = useEditorStore((state) => state.showClickMarkers);
   const drawRangeSnap = useEditorStore((state) => state.drawRangeSnap);
@@ -280,6 +282,7 @@ export function BeatmapCanvas({
         showInputPaths: settings.showInputPaths,
         showCursorSpeed: settings.showCursorSpeed,
         showFrameMarkers: settings.showFrameMarkers,
+        showGhostCursors: settings.showGhostCursors,
         cursorLayerOrder: settings.cursorLayerOrder,
         showClickMarkers: settings.showClickMarkers,
         showBackground: settings.showBackground,
@@ -359,6 +362,9 @@ export function BeatmapCanvas({
     // Only the main playfield publishes hit windows; split-view panes may preview other mods.
     if (!clock) return;
     useEditorStore.getState().setHitWindows(previewBeatmap ? hitWindowsForOd(previewBeatmap.overallDifficulty) : null);
+    useEditorStore
+      .getState()
+      .setCircleRadius(previewBeatmap ? 54.4 - 4.48 * Math.min(10, Math.max(0, previewBeatmap.circleSize)) : null);
   }, [previewBeatmap, clock]);
   const replayClient = previewTrack && previewTrack.exportMetadata.version >= 30000000 ? 'lazer' : 'stable';
   const judgedHeadHits = useMemo(() => {
@@ -415,6 +421,7 @@ export function BeatmapCanvas({
         showInputPaths,
         showCursorSpeed,
         showFrameMarkers,
+        showGhostCursors,
         cursorLayerOrder,
         showClickMarkers,
         showBackground,
@@ -452,6 +459,7 @@ export function BeatmapCanvas({
     showInputPaths,
     showCursorSpeed,
     showFrameMarkers,
+    showGhostCursors,
     cursorLayerOrder,
     showClickMarkers,
     ready,
@@ -519,6 +527,7 @@ export function BeatmapCanvas({
       color: previewTrack.color,
       frames: replay.frames,
       client: previewTrack.exportMetadata.version >= 30000000 ? 'lazer' : 'stable',
+      opacity: previewTrack.opacity ?? 1,
       selectedInput:
         liveSelection?.trackId === previewTrack.id
           ? {
@@ -534,6 +543,35 @@ export function BeatmapCanvas({
       })(),
     });
   }, [ready, previewTrack, original, selectedInput, inputEditPreview, selectedCursorRange, tool, selectedTimeRange]);
+
+  // Ghost cursors: the other visible replays, plus the other version of this one (the unedited
+  // original, or the edit when this pane shows the original). Replays played with a different
+  // HR state are mirrored into this playfield's orientation.
+  const ghosts = useMemo(() => {
+    if (!previewTrack) return [];
+    const hardRock = (previewMods & 16) !== 0;
+    const mirror = (frames: readonly ReplayFrame[], mods: number) =>
+      ((mods & 16) !== 0) === hardRock ? frames : frames.map((frame) => ({ ...frame, y: 384 - frame.y }));
+    const list = allTracks
+      .filter((track) => track.visible && track.id !== previewTrack.id)
+      .map((track) => ({
+        id: track.id,
+        color: track.color,
+        opacity: track.opacity ?? 1,
+        frames: mirror(track.replay.frames, track.exportMetadata.mods),
+      }));
+    if (previewTrack.edited)
+      list.push({
+        id: `${previewTrack.id}:${original ? 'edited' : 'original'}`,
+        color: '#aab6c3',
+        opacity: 0.7 * (previewTrack.opacity ?? 1),
+        frames: original ? previewTrack.replay.frames : previewTrack.originalReplay.frames,
+      });
+    return list;
+  }, [allTracks, previewTrack, previewMods, original]);
+  useEffect(() => {
+    if (ready) viewerRef.current?.setGhosts(ghosts);
+  }, [ghosts, ready]);
 
   const finishPan = (target?: HTMLDivElement) => {
     const drag = panDragRef.current;

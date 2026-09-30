@@ -7,6 +7,8 @@ export type Track = {
   id: string;
   name: string;
   color: string;
+  // 0.05–1; ghosts, the cursor and timeline lanes of this replay fade with it. Missing = 1.
+  opacity?: number;
   visible: boolean;
   locked: boolean;
   edited: boolean;
@@ -179,6 +181,7 @@ export type EditorState = {
   showInputPaths: boolean;
   showCursorSpeed: boolean;
   showFrameMarkers: boolean;
+  showGhostCursors: boolean;
   // Cursor overlay drawing order, first = on top.
   cursorLayerOrder: CursorLayerId[];
   setCursorLayerOrder: (order: CursorLayerId[]) => void;
@@ -214,7 +217,7 @@ export type EditorState = {
   selectedCursorFrameTimes: number[];
   inputKey: InputKey;
   inputDragMode: InputDragMode;
-  filesTab: 'objects' | 'replay' | 'markers';
+  filesTab: 'objects' | 'replay' | 'markers' | 'misses';
   inspectorTab: 'inspector' | 'mods' | 'metadata';
   selectTrack: (id: string, ctrl: boolean, shift: boolean) => void;
   setPreviewTrack: (id: string | null) => void;
@@ -226,6 +229,7 @@ export type EditorState = {
   setMapLoadStatus: (beatmapHash: string, status: 'ok' | 'error') => void;
   loadProjectTracks: (tracks: Track[], archivedTracks?: Track[], archivedMapInfo?: Record<string, MapInfo>) => void;
   setTrackColor: (id: string, color: string) => void;
+  setTrackOpacity: (id: string, opacity: number) => void;
   setTrackName: (id: string, name: string) => void;
   setTrackMetadata: (id: string, patch: Partial<ImportedReplay['metadata']>, autoScore?: boolean) => void;
   toggleTrackVisibility: (id: string) => void;
@@ -255,7 +259,7 @@ export type EditorState = {
   setPlayfieldZoom: (zoom: number) => void;
   setCursorTrailMs: (duration: number) => void;
   setCursorDisplay: (
-    option: 'past' | 'future' | 'input-paths' | 'click-markers' | 'speed' | 'frame-markers',
+    option: 'past' | 'future' | 'input-paths' | 'click-markers' | 'speed' | 'frame-markers' | 'ghosts',
     show: boolean,
   ) => void;
   setCursorSmoothing: (smoothing: CursorSmoothing) => void;
@@ -263,6 +267,9 @@ export type EditorState = {
   setEditorSurface: (surface: EditorSurface) => void;
   setBeatmapObjects: (objects: BeatmapTimelineObject[]) => void;
   hitWindows: HitWindows | null;
+  // Hit circle radius in osu! pixels for the previewed replay's mods.
+  circleRadius: number | null;
+  setCircleRadius: (radius: number | null) => void;
   // Where the previewed replay lost sliders (from the main playfield).
   sliderBreaks: SliderBreak[];
   setSliderBreaks: (breaks: SliderBreak[]) => void;
@@ -365,6 +372,7 @@ const cursorFutureStorageKey = 'osu-replay-editor.cursor-future';
 const inputPathsStorageKey = 'osu-replay-editor.cursor-input-paths';
 const cursorSpeedStorageKey = 'osu-replay-editor.cursor-speed-heatmap';
 const frameMarkersStorageKey = 'osu-replay-editor.cursor-frame-markers';
+const ghostCursorsStorageKey = 'osu-replay-editor.cursor-ghosts';
 const cursorLayerOrderStorageKey = 'osu-replay-editor.cursor-layer-order';
 const clickMarkersStorageKey = 'osu-replay-editor.cursor-click-markers';
 const smoothingStorageKey = 'osu-replay-editor.cursor-smoothing';
@@ -411,6 +419,7 @@ function readCursorEditingPreferences(): Pick<
   | 'showInputPaths'
   | 'showCursorSpeed'
   | 'showFrameMarkers'
+  | 'showGhostCursors'
   | 'cursorLayerOrder'
   | 'showClickMarkers'
   | 'cursorSmoothing'
@@ -424,6 +433,7 @@ function readCursorEditingPreferences(): Pick<
       showInputPaths: localStorage.getItem(inputPathsStorageKey) !== 'false',
       showCursorSpeed: localStorage.getItem(cursorSpeedStorageKey) === 'true',
       showFrameMarkers: localStorage.getItem(frameMarkersStorageKey) !== 'false',
+      showGhostCursors: localStorage.getItem(ghostCursorsStorageKey) !== 'false',
       cursorLayerOrder: normalizeCursorLayerOrder(
         JSON.parse(localStorage.getItem(cursorLayerOrderStorageKey) ?? 'null'),
       ),
@@ -438,6 +448,7 @@ function readCursorEditingPreferences(): Pick<
       showInputPaths: true,
       showCursorSpeed: false,
       showFrameMarkers: true,
+      showGhostCursors: true,
       cursorLayerOrder: [...DEFAULT_CURSOR_LAYER_ORDER],
       showClickMarkers: true,
       cursorSmoothing: 'medium',
@@ -874,6 +885,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   editorSurface: null,
   beatmapObjects: [],
   hitWindows: null,
+  circleRadius: null,
   sliderBreaks: [],
   markers: [],
   editingMarkerId: null,
@@ -1084,6 +1096,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       ),
     );
   },
+  // Display-only: no undo step and the replay is not marked as edited.
+  setTrackOpacity: (id, opacity) => {
+    if (!Number.isFinite(opacity)) return;
+    const value = Math.max(0.05, Math.min(1, Math.round(opacity * 100) / 100));
+    set((state) => ({ tracks: state.tracks.map((track) => (track.id === id ? { ...track, opacity: value } : track)) }));
+  },
   setTrackName: (id, name) => {
     const trimmed = name.trim().slice(0, 80);
     if (!trimmed) return;
@@ -1271,6 +1289,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       'click-markers': ['showClickMarkers', clickMarkersStorageKey],
       speed: ['showCursorSpeed', cursorSpeedStorageKey],
       'frame-markers': ['showFrameMarkers', frameMarkersStorageKey],
+      ghosts: ['showGhostCursors', ghostCursorsStorageKey],
     } as const;
     const [field, storageKey] = mapping[option];
     try {
@@ -1299,6 +1318,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setEditorSurface: (editorSurface) => set({ editorSurface }),
   setBeatmapObjects: (beatmapObjects) => set({ beatmapObjects, selectedBeatmapObjectIndex: null }),
   setHitWindows: (hitWindows) => set({ hitWindows }),
+  setCircleRadius: (circleRadius) => set({ circleRadius }),
   setSliderBreaks: (sliderBreaks) => set({ sliderBreaks }),
   addMarker: (timeMs, note = '') => {
     const id = `marker-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;

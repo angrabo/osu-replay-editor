@@ -135,7 +135,8 @@ export function useTimelineCanvas(params: {
     }
 
     orderedVisibleTracks.forEach((track, trackIndex) => {
-      const selectedAlpha = selected.includes(track.id) ? 0.94 : 0.48;
+      const trackOpacity = track.opacity ?? 1;
+      const selectedAlpha = (selected.includes(track.id) ? 0.94 : 0.48) * trackOpacity;
       const base = numericColor(track.color);
       const frames = track.replay.frames;
       const endTime = start + (canvasWidth * 1000) / pixelsPerSecond;
@@ -189,7 +190,8 @@ export function useTimelineCanvas(params: {
             ? Math.max(3, laneHeights[laneIndex] - 4)
             : Math.max(3, (laneHeights[laneIndex] - 4) / Math.max(1, orderedVisibleTracks.length));
         const y = laneY + 2 + (layoutMode === 'overlap' ? 0 : trackIndex * rowHeight);
-        const inputAlpha = layoutMode === 'overlap' ? (selected.includes(track.id) ? 0.94 : 0.3) : selectedAlpha;
+        const inputAlpha =
+          layoutMode === 'overlap' ? (selected.includes(track.id) ? 0.94 : 0.3) * trackOpacity : selectedAlpha;
         let downAt: number | null = (stateAtStart & (1 << keyIndex)) !== 0 ? start : null;
         for (let index = firstEvent; index < events.length; index++) {
           const event = events[index];

@@ -14,6 +14,7 @@ const cursorLayerLabels: Record<CursorLayerId, string> = {
   'input-paths': 'Input colour paths',
   'frame-markers': 'Replay frame ×',
   'click-markers': 'Press/release circles',
+  ghosts: 'Ghost cursors',
 };
 
 const withKey = (label: string, id: KeyActionId) => {
@@ -34,6 +35,7 @@ export function EditorQuickbar() {
   const showInputPaths = useEditorStore((state) => state.showInputPaths);
   const showCursorSpeed = useEditorStore((state) => state.showCursorSpeed);
   const showFrameMarkers = useEditorStore((state) => state.showFrameMarkers);
+  const showGhostCursors = useEditorStore((state) => state.showGhostCursors);
   const cursorLayerOrder = useEditorStore((state) => state.cursorLayerOrder);
   const setCursorLayerOrder = useEditorStore((state) => state.setCursorLayerOrder);
   const showClickMarkers = useEditorStore((state) => state.showClickMarkers);
@@ -214,6 +216,7 @@ export function EditorQuickbar() {
             ['speed', 'Speed heatmap', showCursorSpeed, optionPreviews.speedHeatmap],
             ['click-markers', 'Press/release circles', showClickMarkers, optionPreviews.clickMarkers],
             ['frame-markers', 'Replay frame ×', showFrameMarkers, optionPreviews.frameMarkers],
+            ['ghosts', 'Ghost cursors', showGhostCursors, optionPreviews.ghosts],
           ] as const
         ).map(([option, label, checked, preview]) => ({
           id: option,

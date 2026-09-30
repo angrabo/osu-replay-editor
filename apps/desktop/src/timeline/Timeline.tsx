@@ -27,6 +27,7 @@ import { useInputDrag } from './useInputDrag';
 import { useLaneResize } from './useLaneResize';
 import { HitObjectTooltip } from './HitObjectHover';
 import { TimelineMarkers } from './TimelineMarkers';
+import { useMissAnalysis } from '../missAnalysis';
 import { actionForEvent } from '../keybindings';
 import type { Resolution } from '../MapAcquisition';
 import { PanelCloseButton } from '../components/common/PanelCloseButton';
@@ -69,6 +70,7 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
   const [objectHover, setObjectHover] = useState<{ x: number; y: number; index: number } | null>(null);
   const hitWindows = useEditorStore((state) => state.hitWindows);
   const sliderBreaks = useEditorStore((state) => state.sliderBreaks);
+  const misses = useMissAnalysis();
   const showCursorSpeed = useEditorStore((state) => state.showCursorSpeed);
   const previewTrackId = useEditorStore((state) => state.previewTrackId);
   const [contextMenu, setContextMenu] = useState<TimelineContextMenuState | null>(null);
@@ -262,13 +264,14 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
           top: laneTop(laneIndex) + 2 + (layoutMode === 'overlap' ? 0 : trackIndex * rowHeight),
           height: rowHeight - 1,
           opacity:
-            layoutMode === 'overlap'
+            (track.opacity ?? 1) *
+            (layoutMode === 'overlap'
               ? selected.includes(track.id)
                 ? 0.96
                 : 0.38
               : selected.includes(track.id)
                 ? 0.94
-                : 0.66,
+                : 0.66),
           zIndex: selected.includes(track.id) ? 8 : trackIndex + 1,
         },
       ];
@@ -930,6 +933,7 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
               index={objectHover.index}
               judgement={judgementFor(objectHover.index)}
               sliderBreak={sliderBreaks.find((item) => item.objectIndex === objectHover.index) ?? null}
+              missCause={misses?.find((item) => item.objectIndex === objectHover.index)?.cause ?? null}
               windows={hitWindows}
               x={objectHover.x}
               y={objectHover.y}

@@ -18,6 +18,7 @@ export function TrackList({ onImport }: { onImport: () => void }) {
   const selectTrack = useEditorStore((state) => state.selectTrack);
   const setPreview = useEditorStore((state) => state.setPreviewTrack);
   const setColor = useEditorStore((state) => state.setTrackColor);
+  const setOpacity = useEditorStore((state) => state.setTrackOpacity);
   const setTrackName = useEditorStore((state) => state.setTrackName);
   const toggleVisibility = useEditorStore((state) => state.toggleTrackVisibility);
   const toggleLock = useEditorStore((state) => state.toggleTrackLock);
@@ -114,7 +115,7 @@ export function TrackList({ onImport }: { onImport: () => void }) {
                     setMenuId(null);
                   }}
                 >
-                  Edit HEX color
+                  Color & opacity…
                 </button>
                 <button
                   onClick={() => {
@@ -170,6 +171,18 @@ export function TrackList({ onImport }: { onImport: () => void }) {
       )}
       {editingColor && (
         <div className="color-editor">
+          <label className="color-editor-opacity">
+            Opacity
+            <input
+              type="range"
+              min="5"
+              max="100"
+              step="5"
+              value={Math.round((tracks.find((track) => track.id === editingColor)?.opacity ?? 1) * 100)}
+              onChange={(event) => setOpacity(editingColor, Number(event.target.value) / 100)}
+            />
+            <output>{Math.round((tracks.find((track) => track.id === editingColor)?.opacity ?? 1) * 100)}%</output>
+          </label>
           <label>
             Track HEX color
             <input value={colorDraft} maxLength={7} onChange={(event) => setColorDraft(event.target.value)} />

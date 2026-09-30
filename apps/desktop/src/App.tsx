@@ -52,6 +52,7 @@ const PROJECT_VIEW_KEYS: (keyof ProjectView)[] = [
   'showInputPaths',
   'showCursorSpeed',
   'showFrameMarkers',
+  'showGhostCursors',
   'cursorLayerOrder',
   'showClickMarkers',
   'cursorSmoothing',

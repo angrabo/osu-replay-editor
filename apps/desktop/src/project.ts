@@ -30,6 +30,7 @@ export type ProjectView = Pick<
   | 'showInputPaths'
   | 'showCursorSpeed'
   | 'showFrameMarkers'
+  | 'showGhostCursors'
   | 'cursorLayerOrder'
   | 'showClickMarkers'
   | 'cursorSmoothing'

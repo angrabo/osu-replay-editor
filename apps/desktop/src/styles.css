@@ -5652,3 +5652,60 @@ button .spinner {
   color: #6f8398;
   font-size: 11px;
 }
+.color-editor {
+  flex-wrap: wrap;
+}
+.color-editor label.color-editor-opacity {
+  flex: 1 0 100%;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.color-editor-opacity input[type='range'] {
+  flex: 1;
+}
+.color-editor-opacity output {
+  min-width: 34px;
+  color: #c8d6e4;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.miss-list-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 2px 2px 6px;
+}
+.miss-list-summary .miss-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #ffffff0a;
+  font-size: 10px;
+  text-transform: capitalize;
+}
+.miss-kind {
+  display: inline-flex;
+  flex: none;
+  color: #ff6575;
+}
+.miss-kind.miss-aim {
+  color: #ff8a3d;
+}
+.miss-kind.miss-early,
+.miss-kind.miss-late {
+  color: #7fc0ff;
+}
+.miss-kind.miss-notelock {
+  color: #c89bff;
+}
+.miss-kind.miss-slider-break {
+  color: #ff4d5e;
+}
+.miss-kind.miss-no-press,
+.miss-kind.miss-unknown,
+.miss-kind.miss-spinner {
+  color: #aab6c3;
+}

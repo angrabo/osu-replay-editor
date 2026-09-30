@@ -17,6 +17,7 @@ import { DEFAULT_CURSOR_LAYER_ORDER, normalizeCursorLayerOrder, type CursorLayer
 import type {
   BeatmapSource,
   BeatmapViewerAdapter,
+  PreviewGhost,
   PreviewJudgement,
   PreviewReplay,
   ViewerCallbacks,
@@ -91,7 +92,9 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     'input-paths': new Graphics(),
     'frame-markers': new Graphics(),
     'click-markers': new Graphics(),
+    ghosts: new Graphics(),
   };
+  private ghosts: readonly PreviewGhost[] = [];
   private appliedLayerOrder = '';
   private observer: ResizeObserver | null = null;
   private background: Sprite | null = null;
@@ -108,6 +111,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     showInputPaths: true,
     showCursorSpeed: false,
     showFrameMarkers: true,
+    showGhostCursors: true,
     cursorLayerOrder: DEFAULT_CURSOR_LAYER_ORDER,
     showClickMarkers: true,
     showBackground: true,
@@ -208,6 +212,11 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
 
   setReplay(replay: PreviewReplay | null): void {
     this.replay = replay;
+    this.draw();
+  }
+
+  setGhosts(ghosts: readonly PreviewGhost[]): void {
+    this.ghosts = ghosts;
     this.draw();
   }
   setJudgements(judgements: readonly PreviewJudgement[] | null): void {
@@ -788,6 +797,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
       }
     }
     this.drawJudgements(map);
+    this.drawGhosts();
     this.drawCursor();
   }
 
@@ -827,8 +837,55 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     }
   }
 
+  private drawGhosts() {
+    const layer = this.overlays.ghosts;
+    if (!this.options.showGhostCursors || !this.ghosts.length) return;
+    const trailMs =
+      this.options.showCursorTrail && this.options.showCursorPast ? clamp(this.options.cursorTrailMs, 0, 5000) : 0;
+    const pathScale = this.options.compactMode ? 0.6 : 1;
+    const cursorScale = clamp(this.options.cursorSize ?? 100, 50, 200) / 100;
+    for (const ghost of this.ghosts) {
+      const frames = ghost.frames;
+      if (!frames.length || this.timeMs < frames[0].timeMs || this.timeMs > frames[frames.length - 1].timeMs + 500)
+        continue;
+      const point = replayPointAt(frames, this.timeMs);
+      if (!point) continue;
+      const color = Number.parseInt(ghost.color.replace('#', ''), 16) || 0xffffff;
+      const alpha = clamp(ghost.opacity, 0.05, 1);
+      if (trailMs > 0) {
+        let low = 0;
+        let high = frames.length;
+        while (low < high) {
+          const mid = (low + high) >>> 1;
+          if (frames[mid].timeMs < this.timeMs - trailMs) low = mid + 1;
+          else high = mid;
+        }
+        if (low < frames.length && frames[low].timeMs <= this.timeMs) {
+          layer.moveTo(frames[low].x, frames[low].y);
+          for (let i = low + 1; i < frames.length && frames[i].timeMs <= this.timeMs; i++)
+            layer.lineTo(frames[i].x, frames[i].y);
+          layer
+            .lineTo(point.x, point.y)
+            .stroke({ color, width: 1.6 * pathScale, alpha: 0.55 * alpha, cap: 'round', join: 'round' });
+        }
+      }
+      // Filled while a key is held, hollow otherwise.
+      const held = logicalButtons(point.keys) !== 0;
+      layer
+        .circle(point.x, point.y, 10 * cursorScale)
+        .fill({ color, alpha: (held ? 0.8 : 0.25) * alpha })
+        .stroke({ color, width: 2.5 * cursorScale, alpha: 0.95 * alpha });
+    }
+  }
+
   private drawCursor() {
     const replay = this.replay;
+    // The previewed replay's own opacity fades its cursor and overlays, not the ghosts.
+    const opacity = clamp(replay?.opacity ?? 1, 0.05, 1);
+    for (const [id, graphics] of Object.entries(this.overlays)) graphics.alpha = id === 'ghosts' ? 1 : opacity;
+    this.cursor.alpha = opacity;
+    this.cursorTrail.alpha = opacity;
+    this.cursorClicks.alpha = opacity;
     if (!replay?.frames.length || this.timeMs < replay.frames[0].timeMs) return;
     const frames = replay.frames;
     let low = 0;

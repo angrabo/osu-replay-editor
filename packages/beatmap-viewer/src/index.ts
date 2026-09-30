@@ -33,6 +33,16 @@ export type PreviewReplay = {
   client?: 'stable' | 'lazer';
   selectedInput?: { keyIndex: number; startTime: number; endTime: number } | null;
   selectedRange?: { startTime: number; endTime: number } | null;
+  // 0.05–1, applied to the cursor and its overlays.
+  opacity?: number;
+};
+// Another replay's cursor drawn faintly on the same playfield (other tracks, or the unedited
+// original), with a short trail.
+export type PreviewGhost = {
+  id: string;
+  color: string;
+  opacity: number;
+  frames: readonly PreviewFrame[];
 };
 export type PreviewJudgement = {
   objectIndex: number;
@@ -51,6 +61,8 @@ export type ViewerOptions = {
   showCursorSpeed: boolean;
   // The small × on every replay frame.
   showFrameMarkers: boolean;
+  // Draw ghost cursors of the other visible replays.
+  showGhostCursors: boolean;
   // Drawing order of the cursor overlays, first = on top.
   cursorLayerOrder: readonly CursorLayerId[];
   showClickMarkers: boolean;
@@ -86,6 +98,7 @@ export type PlayfieldTransform = { scale: number; x: number; y: number };
 export interface BeatmapViewerAdapter {
   loadBeatmap(source: BeatmapSource): Promise<void>;
   setReplay(replay: PreviewReplay | null): void;
+  setGhosts(ghosts: readonly PreviewGhost[]): void;
   setJudgements(judgements: readonly PreviewJudgement[] | null): void;
   seek(timeMs: number): void;
   play(): void;

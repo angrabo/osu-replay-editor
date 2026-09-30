@@ -1,31 +1,15 @@
 import { FastForward, LocateFixed, Pause, Play, Rewind, SkipBack, SkipForward } from 'lucide-react';
 import { timelineStart, useEditorStore } from '../../stores/editor';
 import { jumpTo, type JumpTarget } from '../../navigation';
-import { shortcutLabel, useKeybindingsVersion, type KeyActionId } from '../../keybindings';
 
-const jumpButtons: {
-  target: JumpTarget;
-  label: string;
-  name: string;
-  className: string;
-  next: KeyActionId;
-  previous: KeyActionId;
-}[] = [
-  { target: '100', label: '100', name: '100', className: 'jump-100', next: 'next-100', previous: 'previous-100' },
-  { target: '50', label: '50', name: '50', className: 'jump-50', next: 'next-50', previous: 'previous-50' },
-  { target: 'miss', label: '×', name: 'miss', className: 'jump-miss', next: 'next-miss', previous: 'previous-miss' },
-  {
-    target: 'combo-break',
-    label: 'CB',
-    name: 'combo break',
-    className: 'jump-combo-break',
-    next: 'next-combo-break',
-    previous: 'previous-combo-break',
-  },
+const jumpButtons: { target: JumpTarget; label: string; name: string; className: string }[] = [
+  { target: '100', label: '100', name: '100', className: 'jump-100' },
+  { target: '50', label: '50', name: '50', className: 'jump-50' },
+  { target: 'miss', label: '×', name: 'miss', className: 'jump-miss' },
+  { target: 'combo-break', label: 'CB', name: 'combo break', className: 'jump-combo-break' },
 ];
 
 export function Transport({ compact = false }: { compact?: boolean }) {
-  useKeybindingsVersion();
   const playing = useEditorStore((state) => state.playing);
   const setPlaying = useEditorStore((state) => state.setPlaying);
   const playhead = useEditorStore((state) => state.playheadMs);
@@ -41,10 +25,6 @@ export function Transport({ compact = false }: { compact?: boolean }) {
     target === 'combo-break'
       ? !!simulation || hasSliderBreaks
       : !!simulation?.judgements.some((item) => item.result === target);
-  const hint = (id: KeyActionId) => {
-    const key = shortcutLabel(id);
-    return key ? ` (${key})` : '';
-  };
   return (
     <div className={`transport ${compact ? 'transport-compact' : ''}`}>
       <button title="Go to start" onClick={() => setPlayhead(startMs)}>
@@ -72,7 +52,7 @@ export function Transport({ compact = false }: { compact?: boolean }) {
               <button
                 key={item.target}
                 className={item.className}
-                title={`Next ${item.name}${hint(item.next)} · Shift+click: previous${hint(item.previous)}`}
+                title={`Next ${item.name} · Shift+click: previous`}
                 aria-label={`Jump to next ${item.name}`}
                 disabled={!available(item.target)}
                 onClick={(event) => jumpTo(item.target, event.shiftKey ? -1 : 1)}

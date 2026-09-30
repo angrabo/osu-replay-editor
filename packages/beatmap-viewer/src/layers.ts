@@ -1,5 +1,5 @@
 /// Cursor overlay layers the playfield draws, and their default order.
-export type CursorLayerId = 'past' | 'future' | 'speed' | 'input-paths' | 'frame-markers' | 'click-markers';
+export type CursorLayerId = 'past' | 'future' | 'speed' | 'input-paths' | 'frame-markers' | 'click-markers' | 'ghosts';
 // Default cursor overlay order, first = drawn on top.
 export const DEFAULT_CURSOR_LAYER_ORDER: readonly CursorLayerId[] = [
   'click-markers',
@@ -8,6 +8,7 @@ export const DEFAULT_CURSOR_LAYER_ORDER: readonly CursorLayerId[] = [
   'speed',
   'future',
   'past',
+  'ghosts',
 ];
 export function normalizeCursorLayerOrder(order: readonly unknown[] | null | undefined): CursorLayerId[] {
   const known = DEFAULT_CURSOR_LAYER_ORDER as readonly unknown[];

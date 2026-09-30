@@ -146,6 +146,15 @@ export const optionPreviews = {
       <SliderEndSample y={52} tone="#5fe3ff" inner="#2b4f5c" label="lazer" />
     </Frame>
   ),
+  ghosts: (
+    <Frame>
+      <path d="M14 52 C38 40 56 30 86 26" fill="none" stroke="#5da3ee" strokeWidth="1.6" opacity="0.5" />
+      <circle cx="86" cy="26" r="6" fill="#5da3ee" fillOpacity="0.25" stroke="#5da3ee" strokeWidth="1.6" />
+      <path d="M14 58 C40 52 60 46 92 44" fill="none" stroke="#aab6c3" strokeWidth="1.6" opacity="0.5" />
+      <circle cx="92" cy="44" r="6" fill="#aab6c3" fillOpacity="0.8" stroke="#aab6c3" strokeWidth="1.6" />
+      <Cursor x={62} y={34} />
+    </Frame>
+  ),
   frameMarkers: (
     <Frame>
       <path d="M14 50 C36 44 52 26 70 24 S96 30 108 18" fill="none" stroke="#c5ccd4" strokeWidth="1.4" opacity="0.7" />

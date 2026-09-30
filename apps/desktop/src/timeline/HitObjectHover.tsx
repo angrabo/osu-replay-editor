@@ -1,5 +1,6 @@
 import type { SliderBreak } from '@ore/beatmap-viewer';
 import type { BeatmapTimelineObject, HitWindows, SimulationJudgement } from '../stores/editor';
+import type { MissCause } from '../missAnalysis';
 
 const resultColour = { '300': '#7fc0ff', '100': '#59d98e', '50': '#f29a4a', miss: '#ff6575' } as const;
 
@@ -41,6 +42,7 @@ export function HitObjectTooltip({
   index,
   judgement,
   sliderBreak,
+  missCause,
   windows,
   x,
   y,
@@ -49,6 +51,7 @@ export function HitObjectTooltip({
   index: number;
   judgement: SimulationJudgement | null;
   sliderBreak?: SliderBreak | null;
+  missCause?: MissCause | null;
   windows: HitWindows | null;
   x: number;
   y: number;
@@ -72,6 +75,11 @@ export function HitObjectTooltip({
         </span>
       ) : (
         <span>{judgement ? 'No press judged for this object' : 'Run the simulation to see the hit'}</span>
+      )}
+      {missCause && (
+        <span className="hit-object-break" title={missCause.detail}>
+          Why: {missCause.summary}
+        </span>
       )}
       {sliderBreak && (
         <span className="hit-object-break">
