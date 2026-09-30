@@ -8,5 +8,6 @@
     <ProjectReference Include="../ReplayEditor.Core/ReplayEditor.Core.csproj" />
     <ProjectReference Include="../ReplayEditor.Osu/ReplayEditor.Osu.csproj" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+    <PackageReference Include="Realm" Version="20.1.0" />
   </ItemGroup>
 </Project>

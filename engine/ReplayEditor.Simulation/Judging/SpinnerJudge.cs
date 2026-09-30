@@ -45,7 +45,9 @@ internal static class SpinnerJudge
 
         foreach (var frame in frames.Where(frame => frame.TimeMs >= start && frame.TimeMs < end))
         {
-            if (Math.Pow(frame.X - CenterX, 2) + Math.Pow(frame.Y - CenterY, 2) < DeadZoneRadiusSquared)
+            // Stable ignores the cursor right at the centre; lazer (SpinnerRotationTracker) counts every
+            // movement, so small spins around the centre still add up.
+            if (!lazer && Math.Pow(frame.X - CenterX, 2) + Math.Pow(frame.Y - CenterY, 2) < DeadZoneRadiusSquared)
                 continue;
 
             var angle = Math.Atan2(frame.Y - CenterY, frame.X - CenterX);
@@ -84,8 +86,7 @@ internal static class SpinnerJudge
 
     private static double? LastCursorAngleBefore(IReadOnlyList<SimulationFrame> frames, double start)
     {
-        var frame = frames.LastOrDefault(frame =>
-            frame.TimeMs < start && Math.Pow(frame.X - CenterX, 2) + Math.Pow(frame.Y - CenterY, 2) >= DeadZoneRadiusSquared);
+        var frame = frames.LastOrDefault(frame => frame.TimeMs < start);
         return frame is null ? null : Math.Atan2(frame.Y - CenterY, frame.X - CenterX);
     }
 

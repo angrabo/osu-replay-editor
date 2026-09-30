@@ -16,6 +16,7 @@ public sealed class OsuService
     private readonly BeatmapResolver resolver;
     private readonly BeatmapImporter importer;
     private readonly BeatmapFileReader fileReader;
+    private readonly LocalBeatmapResolver localResolver;
 
     public OsuService(HttpMessageHandler? testHandler = null, string? testCacheRoot = null)
     {
@@ -33,6 +34,7 @@ public sealed class OsuService
         resolver = new BeatmapResolver(api, session, cache);
         importer = new BeatmapImporter(cache);
         fileReader = new BeatmapFileReader(cache);
+        localResolver = new LocalBeatmapResolver(cache);
     }
 
     public SessionStatus Status() => session.Status();
@@ -54,6 +56,11 @@ public sealed class OsuService
 
     public Task<MapResolution> ResolveAsync(string hash, CancellationToken ct) =>
         resolver.ResolveAsync(hash, ct);
+
+    public LocalBeatmapLocations LocalLocations() => localResolver.Detect();
+
+    public Task<MapResolution> ResolveLocalAsync(string hash, string client, string? directory, CancellationToken ct) =>
+        localResolver.ResolveAsync(hash, client, directory, ct);
 
     public Task<MapResolution> ImportAsync(string hash, string filename, byte[] bytes, CancellationToken ct) =>
         importer.ImportAsync(hash, filename, bytes, ct);

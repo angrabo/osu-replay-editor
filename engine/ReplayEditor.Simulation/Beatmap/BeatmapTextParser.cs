@@ -10,7 +10,9 @@ namespace ReplayEditor.Simulation.Beatmap;
 /// </summary>
 internal static class BeatmapTextParser
 {
-    public static MapData Parse(string text, int mods)
+    /// <param name="lazerStacking">Lazer stacks after applying HR, so stack offsets always point up-left on
+    /// screen; stable mirrors them together with the object.</param>
+    public static MapData Parse(string text, int mods, bool lazerStacking = false)
     {
         var sections = ParseSections(text);
         var difficulty = Entries(sections, "Difficulty");
@@ -26,7 +28,7 @@ internal static class BeatmapTextParser
 
         var formatVersion = DetectFormatVersion(text);
         var ordered = StableStacking.Apply(objects.OrderBy(item => item.Start).ToArray(), ar,
-            Number(general.GetValueOrDefault("StackLeniency"), .7), cs, (mods & 16) != 0, formatVersion >= 6);
+            Number(general.GetValueOrDefault("StackLeniency"), .7), cs, (mods & 16) != 0, formatVersion >= 6, lazerStacking);
 
         var difficultyMultiplier = ComputeDifficultyMultiplier(hp, difficulty, ordered);
 

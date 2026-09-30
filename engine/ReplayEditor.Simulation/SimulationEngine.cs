@@ -109,7 +109,7 @@ public static class SimulationEngine
         int? failAfterJudgedObjects = null)
     {
         var client = replayVersion >= 30000000 ? "lazer" : "stable";
-        var map = BeatmapTextParser.Parse(osuText, mods);
+        var map = BeatmapTextParser.Parse(osuText, mods, lazerStacking: client == "lazer");
         var isLazer = client == "lazer";
         var stableScoreV2 = !isLazer && (mods & (1 << 29)) != 0;
 
@@ -214,7 +214,8 @@ public static class SimulationEngine
                     (result, value) = ("miss", 0);
                     stableObjectUnlockTime = start + hitWindow50;
                     if (item.Kind == "slider")
-                        sliderParts = SliderJudge.Parts(frames, item, rate, map.SliderTickRate, radius * 2.4, false, isLazer);
+                        sliderParts = SliderJudge.Parts(frames, item, rate, map.SliderTickRate, radius * 2.4, false, isLazer,
+                            headMissJudgedAt: start + hitWindow50);
                 }
                 else
                 {
@@ -237,7 +238,8 @@ public static class SimulationEngine
                             : absolute < hitWindow300 ? ("300", 300) : absolute < hitWindow100 ? ("100", 100) : ("50", 50);
                     sliderHeadValue = value;
                     if (item.Kind == "slider")
-                        sliderParts = SliderJudge.Parts(frames, item, rate, map.SliderTickRate, radius * 2.4, true, isLazer, hitTime);
+                        sliderParts = SliderJudge.Parts(frames, item, rate, map.SliderTickRate, radius * 2.4, true, isLazer, hitTime,
+                            chosen.press.Bit);
                 }
 
                 if (item.Kind == "slider" && !isLazer)

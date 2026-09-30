@@ -8,13 +8,13 @@ namespace ReplayEditor.Simulation.Beatmap;
 internal static class StableStacking
 {
     public static MapObject[] Apply(MapObject[] objects, double ar, double stackLeniency, double cs,
-        bool hardRock, bool modernStacking)
+        bool hardRock, bool modernStacking, bool lazerStacking = false)
     {
         if (objects.Length == 0)
             return objects;
 
         var heights = ComputeStackHeights(objects, ar, stackLeniency, modernStacking);
-        return ApplyStackOffsets(objects, heights, cs, hardRock);
+        return ApplyStackOffsets(objects, heights, cs, hardRock, lazerStacking);
     }
 
     private static int[] ComputeStackHeights(MapObject[] objects, double ar, double stackLeniency, bool modernStacking)
@@ -92,7 +92,8 @@ internal static class StableStacking
         }
     }
 
-    private static MapObject[] ApplyStackOffsets(MapObject[] objects, int[] heights, double cs, bool hardRock)
+    private static MapObject[] ApplyStackOffsets(MapObject[] objects, int[] heights, double cs, bool hardRock,
+        bool lazerStacking)
     {
         var radius = Math.Max(12, 54.4 - 4.48 * cs);
         // Stable offsets stacks by 6.4 screen pixels multiplied by the
@@ -104,13 +105,15 @@ internal static class StableStacking
         {
             var dx = -heights[i] * stackOffset;
             var dy = -heights[i] * stackOffset;
-            var shiftedPath = objects[i].Path
-                .Select(point => (point.X + dx, hardRock ? 384 - (point.Y + dy) : point.Y + dy))
-                .ToArray();
+            // Stable flips the stacked position; lazer flips first and stacks afterwards, so its
+            // offset stays up-left on screen. Stack heights are the same either way (mirroring keeps
+            // distances).
+            double FlipY(double y) => !hardRock ? y + dy : lazerStacking ? 384 - y + dy : 384 - (y + dy);
+            var shiftedPath = objects[i].Path.Select(point => (point.X + dx, FlipY(point.Y))).ToArray();
             result[i] = objects[i] with
             {
                 X = objects[i].X + dx,
-                Y = hardRock ? 384 - (objects[i].Y + dy) : objects[i].Y + dy,
+                Y = FlipY(objects[i].Y),
                 Path = shiftedPath
             };
         }

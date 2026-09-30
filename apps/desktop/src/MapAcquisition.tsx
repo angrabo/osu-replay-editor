@@ -37,6 +37,16 @@ export type Resolution = {
   difficulties: Difficulty[];
   assets: string[];
 };
+type LocalLocations = { stable: string | null; lazer: string | null };
+type SearchStep = { label: string; state: 'waiting' | 'running' | 'done' | 'missed' };
+const locationStorageKey = 'ore-map-locations';
+function savedLocations(): LocalLocations {
+  try {
+    return { stable: null, lazer: null, ...JSON.parse(localStorage.getItem(locationStorageKey) || '{}') };
+  } catch {
+    return { stable: null, lazer: null };
+  }
+}
 
 export type AcquisitionAction = 'open' | 'select-replays' | 'select-map' | 'new-map' | 'recent-replays';
 
@@ -88,6 +98,10 @@ export function MapAcquisition({
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [activity, setActivity] = useState<string | null>(null);
+  const [locations, setLocations] = useState<LocalLocations>(savedLocations);
+  const [detectedLocations, setDetectedLocations] = useState<LocalLocations>({ stable: null, lazer: null });
+  const [showLocations, setShowLocations] = useState(false);
+  const [searchSteps, setSearchSteps] = useState<SearchStep[]>([]);
   const replayInput = useRef<HTMLInputElement>(null);
   const beatmapInput = useRef<HTMLInputElement>(null);
   const initialActionHandled = useRef(false);
@@ -126,19 +140,83 @@ export function MapAcquisition({
 
   async function resolve(hash: string, imported = pending, replacing = pendingReplacement) {
     setBusy(true);
-    setActivity('Finding the exact beatmap…');
     setMessage('');
+    const steps: SearchStep[] = [
+      { label: 'osu!stable', state: 'waiting' },
+      { label: 'osu!lazer', state: 'waiting' },
+      { label: 'osu! download', state: 'waiting' },
+    ];
+    const updateStep = (index: number, state: SearchStep['state']) => {
+      steps[index] = { ...steps[index], state };
+      setSearchSteps([...steps]);
+    };
+    setSearchSteps([...steps]);
     try {
-      const value = await sidecarRequest<Resolution>(`/api/beatmaps/resolve/${hash}`);
+      let detected: LocalLocations = { stable: null, lazer: null };
+      try {
+        detected = await sidecarRequest<LocalLocations>('/api/beatmaps/local/locations');
+        setDetectedLocations(detected);
+      } catch {
+        /* The online resolver can still work. */
+      }
+      let value: Resolution | null = null;
+      for (const [index, client] of (['stable', 'lazer'] as const).entries()) {
+        const directory = locations[client] || detected[client];
+        if (!directory) {
+          updateStep(index, 'missed');
+          continue;
+        }
+        updateStep(index, 'running');
+        setActivity(`Checking ${client === 'stable' ? 'osu!stable Songs' : 'osu!lazer library'}…`);
+        try {
+          const query = new URLSearchParams({ directory });
+          const local = await sidecarRequest<Resolution>(`/api/beatmaps/local/${client}/${hash}?${query}`);
+          if (local.status === 'verified') {
+            value = local;
+            updateStep(index, 'done');
+            break;
+          }
+        } catch {
+          /* Continue to the next source. */
+        }
+        updateStep(index, 'missed');
+      }
+      if (!value) {
+        updateStep(2, 'running');
+        setActivity('Looking up and downloading the beatmap from osu!…');
+        value = await sidecarRequest<Resolution>(`/api/beatmaps/resolve/${hash}`);
+        updateStep(2, value.status === 'verified' ? 'done' : 'missed');
+      }
       applyResolution(value, imported, replacing);
       useEditorStore.getState().setMapLoadStatus(hash, value.status === 'verified' ? 'ok' : 'error');
       if (value.status === 'verified')
-        setMessage(value.source === 'cache' ? 'Using the cached beatmap.' : 'Beatmap downloaded and ready.');
+        setMessage(
+          value.source === 'cache'
+            ? 'Using the cached beatmap.'
+            : value.source?.startsWith('osu-')
+              ? 'Local beatmap found and ready.'
+              : 'Beatmap downloaded and ready.',
+        );
     } catch (error) {
+      updateStep(2, 'missed');
       reveal();
       if (!replacing) onResolutionChange(null);
       useEditorStore.getState().setMapLoadStatus(hash, 'error');
-      setMessage((error as Error).message);
+      const reason = (error as Error).message;
+      setResolution({
+        status: 'unresolved',
+        replayHash: hash,
+        title: null,
+        artist: null,
+        creator: null,
+        version: null,
+        beatmapsetId: null,
+        source: null,
+        error: reason,
+        difficulties: [],
+        assets: [],
+      });
+      setMessage(reason);
     } finally {
       setActivity(null);
       setBusy(false);
@@ -293,8 +371,21 @@ export function MapAcquisition({
     previousAuthenticated.current = signedInNow;
   }, [session?.authenticated]);
 
-  const needsMap = header && resolution?.status !== 'verified';
+  const needsMap = header && resolution?.status !== 'verified' && searchSteps.length > 0 && !busy;
   const canDownload = session?.authenticated === true;
+
+  function setLocation(client: 'stable' | 'lazer', path: string) {
+    const next = { ...locations, [client]: path || null };
+    setLocations(next);
+    localStorage.setItem(locationStorageKey, JSON.stringify(next));
+  }
+
+  async function chooseLocation(client: 'stable' | 'lazer') {
+    if (!(await isDesktop())) return;
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const path = await open({ directory: true, multiple: false });
+    if (typeof path === 'string') setLocation(client, path);
+  }
 
   if (quiet)
     return (
@@ -352,12 +443,63 @@ export function MapAcquisition({
           </button>
         </div>
 
-        {activity && (
-          <div className="acquisition-progress" role="status" aria-live="polite">
-            <div className="acquisition-progress-track" role="progressbar" aria-label={activity}>
-              <span />
+        <div className="map-source-settings">
+          <button
+            className="map-source-toggle"
+            onClick={() => setShowLocations(!showLocations)}
+            aria-expanded={showLocations}
+          >
+            <FolderOpen size={14} /> Local osu! libraries <span>{showLocations ? '▴' : '▾'}</span>
+          </button>
+          {showLocations && (
+            <div className="map-source-paths">
+              {(['stable', 'lazer'] as const).map((client) => (
+                <label key={client}>
+                  <span>osu!{client}</span>
+                  <div>
+                    <input
+                      value={locations[client] || ''}
+                      placeholder={detectedLocations[client] || 'Auto detect'}
+                      onChange={(event) => setLocation(client, event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      title={`Choose osu!${client} folder`}
+                      onClick={() => void chooseLocation(client)}
+                    >
+                      Browse
+                    </button>
+                  </div>
+                </label>
+              ))}
+              <small>Leave a path empty to detect the installation automatically.</small>
+              {header && (
+                <button className="map-source-retry" disabled={busy} onClick={() => void resolve(header.beatmapHash)}>
+                  Search again
+                </button>
+              )}
             </div>
-            <small>{activity}</small>
+          )}
+        </div>
+
+        {(activity || searchSteps.length > 0) && header && (
+          <div className="acquisition-progress" role="status" aria-live="polite">
+            {activity && (
+              <div className="acquisition-progress-track" role="progressbar" aria-label={activity}>
+                <span />
+              </div>
+            )}
+            <small>{activity || 'Search complete'}</small>
+            <div className="map-search-steps">
+              {searchSteps.map((step) => (
+                <span key={step.label} className={`map-search-step ${step.state}`}>
+                  <b>
+                    {step.state === 'done' ? '✓' : step.state === 'missed' ? '–' : step.state === 'running' ? '●' : '○'}
+                  </b>
+                  {step.label}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
@@ -379,8 +521,12 @@ export function MapAcquisition({
                 {resolution.artist} – {resolution.title} [{resolution.version}]
               </strong>
               <small>
-                {resolution.source === 'cache' ? 'Loaded from cache' : 'Downloaded from osu!'} · replay by{' '}
-                {header.playerName}
+                {resolution.source === 'cache'
+                  ? 'Loaded from cache'
+                  : resolution.source?.startsWith('osu-')
+                    ? `Found in ${resolution.source === 'osu-stable' ? 'osu!stable' : 'osu!lazer'}`
+                    : 'Downloaded from osu!'}{' '}
+                · replay by {header.playerName}
               </small>
             </div>
           </div>

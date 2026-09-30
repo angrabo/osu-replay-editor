@@ -23,6 +23,7 @@ npm-debug.log*
 *.trx
 *.user
 *.suo
+**/FodyWeavers.xsd
 
 # Tauri
 **/target/

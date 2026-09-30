@@ -9,6 +9,16 @@ namespace ReplayEditor.Engine.Controllers;
 [Route("/api/beatmaps")]
 public sealed class BeatmapController(OsuService osu) : ControllerBase
 {
+    [HttpGet("local/locations")]
+    public IActionResult LocalLocations() => Ok(osu.LocalLocations());
+
+    [HttpGet("local/{client}/{hash}")]
+    public async Task<IActionResult> ResolveLocal(string client, string hash, [FromQuery] string? directory, CancellationToken ct)
+    {
+        if (client is not ("stable" or "lazer")) return BadRequest(new { error = "Unknown osu! client." });
+        return Ok(await osu.ResolveLocalAsync(hash, client, directory, ct));
+    }
+
     [HttpGet("resolve/{hash}")]
     public async Task<IActionResult> Resolve(string hash, CancellationToken ct)
     {

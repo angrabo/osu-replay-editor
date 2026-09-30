@@ -72,6 +72,25 @@ public sealed class OsuServiceTests(OsuFixture fixture) : IClassFixture<OsuFixtu
     }
 
     [Fact]
+    public async Task FindsLocalStableSetAndKeepsAssets()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ore-local-stable-{Guid.NewGuid():N}");
+        var set = Path.Combine(root, "Songs", "test set");
+        Directory.CreateDirectory(set);
+        await File.WriteAllBytesAsync(Path.Combine(set, "hard.osu"), fixture.Osu);
+        await File.WriteAllBytesAsync(Path.Combine(set, "song.mp3"), [1, 2, 3]);
+        await File.WriteAllBytesAsync(Path.Combine(set, "bg.jpg"), [4, 5]);
+
+        var service = new OsuService(testCacheRoot: Path.Combine(root, "cache"));
+        var found = await service.ResolveLocalAsync(fixture.Hash, "stable", root, CancellationToken.None);
+        Check(found.Status == "verified" && found.Source == "osu-stable", "local stable lookup");
+        Check(service.ReadBeatmapFile(fixture.Hash, "song.mp3")?.Contents.SequenceEqual(new byte[] { 1, 2, 3 }) == true,
+            "local audio in cache");
+        Check(service.ReadBeatmapFile(fixture.Hash, "bg.jpg")?.Contents.SequenceEqual(new byte[] { 4, 5 }) == true,
+            "local background in cache");
+    }
+
+    [Fact]
     public async Task OnlineLoginProfileAndDownload()
     {
         using var _ = new OsuClientCredentialsScope();
