@@ -63,6 +63,21 @@ jobs:
       - name: Publish sidecar
         run: pwsh scripts/prepare-sidecar.ps1 -Configuration Release
 
+      # tauri-action creates a missing release with a target commit, which the workflow token is
+      # refused when the tagged commit changes a workflow file. Creating the draft for the
+      # existing tag first avoids that; tauri-action then finds it and only uploads.
+      - name: Create draft release if missing
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view $env:RELEASE_TAG --repo ${{ github.repository }} *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:RELEASE_TAG --draft --verify-tag --title $env:RELEASE_TAG --notes "" --repo ${{ github.repository }}
+            if ($LASTEXITCODE -ne 0) { throw "Could not create the draft release for $env:RELEASE_TAG" }
+          }
+          $global:LASTEXITCODE = 0
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
