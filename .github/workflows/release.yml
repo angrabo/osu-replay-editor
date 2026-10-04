@@ -71,7 +71,7 @@ jobs:
         with:
           projectPath: apps/desktop
           tagName: ${{ env.RELEASE_TAG }}
-          releaseName: 'osu! Replay Editor ${{ env.RELEASE_TAG }}'
+          releaseName: '${{ env.RELEASE_TAG }}'
           releaseDraft: true
           prerelease: false
 
