@@ -72,6 +72,64 @@ internal sealed class OsuAuthService(OsuApiClient api, OsuSessionState session)
         }
     }
 
+    /// <summary>
+    /// Signs in with the session osu!lazer already has, read from its game.ini. The token is only
+    /// checked against /me and then used as-is; a rejected or unverified one signs nothing in.
+    /// </summary>
+    public async Task<SessionStatus> LoginWithLazerTokenAsync(string? lazerDirectory, CancellationToken ct)
+    {
+        if (!LazerToken.TryRead(lazerDirectory, out var token, out var expiresAt, out var problem))
+            return new SessionStatus(false, null, problem);
+
+        await gate.WaitAsync(ct);
+        try
+        {
+            session.Logout();
+            session.SetToken(token, expiresAt);
+
+            using var ownData = await api.SendAuthorizedAsync(session.Token, "api/v2/me", ct);
+            if (!ownData.IsSuccessStatusCode)
+            {
+                session.Logout();
+                var status = (int)ownData.StatusCode;
+                return new SessionStatus(false, null, status is >= 400 and < 500
+                    ? $"osu! rejected osu!lazer's saved session ({status}). Sign in again in osu!lazer, or use your password here."
+                    : $"osu! profile request failed ({status}).");
+            }
+
+            if (!session.ApplyProfile(await ParseJsonAsync(ownData, ct)))
+                return new SessionStatus(false, null, "osu! returned invalid profile data.");
+
+            if (!session.IsVerified)
+            {
+                session.Logout();
+                return new SessionStatus(false, null,
+                    "osu!lazer's session is not verified yet. Finish verification in osu!lazer, then try again.");
+            }
+
+            return session.Status();
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            session.Logout();
+            return new SessionStatus(false, null, "osu! sign-in timed out.");
+        }
+        catch (HttpRequestException)
+        {
+            session.Logout();
+            return new SessionStatus(false, null, "osu! is unavailable.");
+        }
+        catch (JsonException)
+        {
+            session.Logout();
+            return new SessionStatus(false, null, "osu! returned a malformed response.");
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
     public async Task<SessionStatus> RequestMailVerificationAsync(CancellationToken ct)
     {
         if (!session.NeedsVerification)

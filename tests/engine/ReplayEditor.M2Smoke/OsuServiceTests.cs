@@ -154,6 +154,44 @@ public sealed class OsuServiceTests(OsuFixture fixture) : IClassFixture<OsuFixtu
         Check(!online.Status().Authenticated && online.Status().User is null, "logout clears profile");
     }
 
+    [Fact]
+    public async Task LazerTokenLogin()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ore-m2-lazer-{Guid.NewGuid():N}");
+        var lazer = Path.Combine(root, "lazer");
+        Directory.CreateDirectory(lazer);
+        var config = Path.Combine(lazer, "game.ini");
+        var future = DateTimeOffset.UtcNow.AddHours(6).ToUnixTimeSeconds();
+        void WriteToken(string value) => File.WriteAllText(config, $"Username = someone\nToken = {value}\nVolume = 1\n");
+
+        var calls = new List<string>();
+        var accepted = new OsuService(new FakeHandler(request =>
+        {
+            calls.Add(request.RequestUri!.AbsolutePath);
+            Check(request.Headers.Authorization?.ToString() == "Bearer lazer-access", "lazer access token as bearer");
+            return Task.FromResult(Json("{\"id\":42,\"username\":\"TestNickname\",\"avatar_url\":\"https://a.ppy.sh/42\"}"));
+        }), Path.Combine(root, "accepted"));
+        WriteToken($"lazer-access|{future}|lazer-refresh");
+        var original = File.ReadAllText(config);
+        var signedIn = await accepted.LoginWithLazerTokenAsync(lazer, CancellationToken.None);
+        Check(signedIn.Authenticated && signedIn.User?.Username == "TestNickname", "lazer token signs in");
+        Check(calls.SequenceEqual(["/api/v2/me"]), "only /me is called: no token request, no refresh");
+        Check(File.ReadAllText(config) == original, "game.ini is left untouched");
+        Check(!JsonSerializer.Serialize(signedIn).Contains("lazer-access"), "token absent from status");
+
+        var rejected = new OsuService(new FakeHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized))),
+            Path.Combine(root, "rejected"));
+        var denied = await rejected.LoginWithLazerTokenAsync(lazer, CancellationToken.None);
+        Check(!denied.Authenticated && denied.Message?.Contains("401") == true && !rejected.Status().Authenticated, "rejected lazer token");
+
+        var offline = new OsuService(new FakeHandler(_ => throw new Exception("no request expected")), Path.Combine(root, "offline"));
+        WriteToken($"lazer-access|{DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds()}|lazer-refresh");
+        Check((await offline.LoginWithLazerTokenAsync(lazer, CancellationToken.None)).Message?.Contains("expired") == true, "expired lazer token");
+        WriteToken("");
+        Check((await offline.LoginWithLazerTokenAsync(lazer, CancellationToken.None)).Message?.Contains("not signed in") == true, "lazer signed out");
+        Check((await offline.LoginWithLazerTokenAsync(Path.Combine(root, "missing"), CancellationToken.None)).Message?.Contains("game.ini") == true, "no game.ini");
+    }
+
     private static void CheckSharedHeaders(HttpRequestMessage request, string label)
     {
         Check(request.RequestUri?.Host == "osu.ppy.sh", "osu host");

@@ -30,6 +30,13 @@ public sealed class AuthController(OsuService osu) : ControllerBase
         return status.Authenticated || status.VerificationRequired ? Ok(status) : BadRequest(status);
     }
 
+    [HttpPost("/api/auth/login/lazer")]
+    public async Task<IActionResult> LoginWithLazer(LazerTokenLoginRequest login, CancellationToken ct)
+    {
+        var status = await osu.LoginWithLazerTokenAsync(login.Directory, ct);
+        return status.Authenticated ? Ok(status) : BadRequest(status);
+    }
+
     [HttpPost("/api/auth/verification/mail")]
     public async Task<IActionResult> RequestMailVerification(CancellationToken ct)
     {

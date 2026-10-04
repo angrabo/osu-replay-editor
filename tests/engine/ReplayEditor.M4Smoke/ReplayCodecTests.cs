@@ -187,4 +187,62 @@ public sealed class ReplayCodecTests(ReplayCodecFixture fixture) : IClassFixture
     {
         Assert.Throws<InvalidDataException>(() => ReplayFileReader.Read(fixture.Broken));
     }
+
+    private static JsonDocument ScoreInfo(ReplayEditor.Core.ReplayFile replay) =>
+        JsonDocument.Parse(ReplayFileReader.TryDecodeLazerScoreInfo(replay.Metadata.LazerScoreInfo)!);
+
+    private static string[] Acronyms(JsonDocument scoreInfo) => scoreInfo.RootElement.GetProperty("mods")
+        .EnumerateArray().Select(mod => mod.GetProperty("acronym").GetString()!).ToArray();
+
+    [Fact]
+    public void LazerOnlyModsAreReadAndSurviveExport()
+    {
+        var withClassic = ReplayFileReader.Read(ReplayFileWriter.Write(
+            fixture.LazerWithMods.Metadata with { LazerMods = ["CL", "DA"] }, fixture.LazerWithMods.Frames));
+        using var scoreInfo = ScoreInfo(withClassic);
+        Assert.Equal(["HD", "HR", "CL", "DA"], Acronyms(scoreInfo));
+        // The settings of mods that were already there are kept.
+        Assert.Equal(2, scoreInfo.RootElement.GetProperty("mods")[0].GetProperty("settings").GetProperty("sample").GetInt32());
+        Assert.Equal(["CL", "DA"], ReplayFileWriter.LazerOnlyMods(withClassic.Metadata.LazerScoreInfo, withClassic.Metadata.Mods));
+
+        // Exporting again with the same mods leaves the score info untouched; dropping one removes it.
+        var again = ReplayFileWriter.Write(withClassic.Metadata with { LazerMods = ["CL", "DA"] }, withClassic.Frames);
+        Assert.True(ReplayFileReader.Read(again).Metadata.LazerScoreInfo!.SequenceEqual(withClassic.Metadata.LazerScoreInfo!));
+        using var dropped = ScoreInfo(ReplayFileReader.Read(
+            ReplayFileWriter.Write(withClassic.Metadata with { LazerMods = ["CL"] }, withClassic.Frames)));
+        Assert.Equal(["HD", "HR", "CL"], Acronyms(dropped));
+    }
+
+    [Fact]
+    public void StableReplayExportedForLazerGetsScoreInfoFromTheSimulation()
+    {
+        var statistics = new ReplayEditor.Core.LazerScoreStatistics(90, 6, 2, 2, 17, 19, 40, 44, 12, 12, 3, 5);
+        var lazer = ReplayFileReader.Read(ReplayFileWriter.Write(
+            fixture.A.Metadata with { Version = 30000019, Mods = 8, LazerStatistics = statistics, LazerMods = ["CL"] },
+            fixture.A.Frames));
+        Assert.Equal("lazer", lazer.Metadata.Client);
+        using var scoreInfo = ScoreInfo(lazer);
+        var root = scoreInfo.RootElement;
+        Assert.Equal(["HD", "CL"], Acronyms(scoreInfo));
+        Assert.Equal("A", root.GetProperty("rank").GetString());
+        var hit = root.GetProperty("statistics");
+        var maximum = root.GetProperty("maximum_statistics");
+        Assert.True(hit.GetProperty("great").GetInt32() == 90 && hit.GetProperty("ok").GetInt32() == 6
+            && hit.GetProperty("meh").GetInt32() == 2 && hit.GetProperty("miss").GetInt32() == 2
+            && hit.GetProperty("large_tick_hit").GetInt32() == 17 && hit.GetProperty("large_tick_miss").GetInt32() == 2
+            && hit.GetProperty("slider_tail_hit").GetInt32() == 40 && hit.GetProperty("large_bonus").GetInt32() == 3,
+            "simulated counts written as lazer statistics");
+        Assert.True(maximum.GetProperty("great").GetInt32() == 100 && maximum.GetProperty("large_tick_hit").GetInt32() == 19
+            && maximum.GetProperty("slider_tail_hit").GetInt32() == 44 && maximum.GetProperty("large_bonus").GetInt32() == 5,
+            "maximums cover every judgement");
+    }
+
+    [Fact]
+    public void LazerExportWithoutScoreInfoOrStatisticsStillRefusesMods()
+    {
+        Assert.Throws<InvalidDataException>(() => ReplayFileWriter.Write(
+            fixture.A.Metadata with { Version = 30000019, LazerMods = ["CL"] }, fixture.A.Frames));
+        Assert.Throws<InvalidDataException>(() => ReplayFileWriter.Write(
+            fixture.LazerWithMods.Metadata with { LazerMods = ["not a mod"] }, fixture.LazerWithMods.Frames));
+    }
 }

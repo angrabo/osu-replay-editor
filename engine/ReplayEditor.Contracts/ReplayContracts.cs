@@ -17,7 +17,9 @@ public sealed record ReplayExportMetadata(
     string OnlineScoreId,
     double? TargetPracticeAccuracy,
     int? RngSeed,
-    string? LazerScoreInfo);
+    string? LazerScoreInfo,
+    string[]? LazerMods = null,
+    LazerScoreStatistics? LazerStatistics = null);
 
 public sealed record ReplayExportRequest(string? Filename, ReplayExportMetadata Metadata, SimulationFrame[] Frames);
 
@@ -42,7 +44,9 @@ public sealed record ParsedReplayMetadata(
     string OnlineScoreId,
     double? TargetPracticeAccuracy,
     int? RngSeed,
-    byte[]? LazerScoreInfo);
+    byte[]? LazerScoreInfo,
+    // Lazer mods without a bit in Mods, read from the score info.
+    string[] LazerMods);
 
 public sealed record ParsedReplayResponse(
     ParsedReplayMetadata Metadata,

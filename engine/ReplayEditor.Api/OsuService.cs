@@ -48,6 +48,11 @@ public sealed class OsuService
     public Task<SessionStatus> LoginAsync(string username, string password, CancellationToken ct) =>
         auth.LoginAsync(username, password, ct);
 
+    /// <summary>Signs in with osu!lazer's own session; without a folder the detected install is used.</summary>
+    public Task<SessionStatus> LoginWithLazerTokenAsync(string? lazerDirectory, CancellationToken ct) =>
+        auth.LoginWithLazerTokenAsync(
+            string.IsNullOrWhiteSpace(lazerDirectory) ? localResolver.Detect().Lazer : lazerDirectory, ct);
+
     public Task<SessionStatus> RequestMailVerificationAsync(CancellationToken ct) =>
         auth.RequestMailVerificationAsync(ct);
 

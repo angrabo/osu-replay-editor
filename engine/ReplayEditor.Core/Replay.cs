@@ -20,10 +20,29 @@ public sealed record ReplayMetadata(
     long OnlineScoreId,
     double? TargetPracticeAccuracy,
     int? RngSeed,
-    byte[]? LazerScoreInfo)
+    byte[]? LazerScoreInfo,
+    // Lazer mods the bitmask cannot express (Classic, Difficulty Adjust…), by acronym.
+    string[]? LazerMods = null,
+    // Counts for building lazer score info when the replay has none (played on stable).
+    LazerScoreStatistics? LazerStatistics = null)
 {
     public string Client => Version >= 30000000 ? "lazer" : "stable";
 }
+
+/// <summary>Judgement counts of a lazer score and the most each could have been.</summary>
+public sealed record LazerScoreStatistics(
+    int Great,
+    int Ok,
+    int Meh,
+    int Miss,
+    int LargeTickHit,
+    int LargeTickTotal,
+    int SliderTailHit,
+    int SliderTailTotal,
+    int SmallBonus,
+    int SmallBonusTotal,
+    int LargeBonus,
+    int LargeBonusTotal);
 
 public sealed record ReplayFile(
     ReplayMetadata Metadata,

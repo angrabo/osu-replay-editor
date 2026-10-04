@@ -72,7 +72,8 @@ public sealed class ReplayCodecService : IReplayCodecService
         metadata.OnlineScoreId.ToString(CultureInfo.InvariantCulture),
         metadata.TargetPracticeAccuracy,
         metadata.RngSeed,
-        metadata.LazerScoreInfo);
+        metadata.LazerScoreInfo,
+        ReplayFileWriter.LazerOnlyMods(metadata.LazerScoreInfo, metadata.Mods));
 
     private static void ValidateExportRequest(ReplayExportRequest request)
     {
@@ -97,7 +98,9 @@ public sealed class ReplayCodecService : IReplayCodecService
         long.Parse(header.OnlineScoreId, CultureInfo.InvariantCulture),
         header.TargetPracticeAccuracy,
         header.RngSeed,
-        string.IsNullOrEmpty(header.LazerScoreInfo) ? null : Convert.FromBase64String(header.LazerScoreInfo));
+        string.IsNullOrEmpty(header.LazerScoreInfo) ? null : Convert.FromBase64String(header.LazerScoreInfo),
+        header.LazerMods,
+        header.LazerStatistics);
 
     private static ReplayFrame[] BuildFrames(SimulationFrame[] frames) => frames
         .Select(frame => new ReplayFrame(frame.TimeMs,

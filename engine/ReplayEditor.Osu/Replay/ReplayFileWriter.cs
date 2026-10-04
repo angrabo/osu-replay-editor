@@ -82,7 +82,7 @@ public static partial class ReplayFileWriter
 
         if (metadata.Version >= 30000001)
         {
-            var extra = UpdateLazerMods(metadata.LazerScoreInfo, metadata.Mods);
+            var extra = UpdateLazerMods(metadata);
             writer.Write(extra.Length);
             writer.Write(extra);
         }
