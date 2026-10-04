@@ -7,6 +7,10 @@ namespace ReplayEditor.Engine.Scoring;
 
 public static class ScoreCalibration
 {
+    // Replay format version of lazer's mod score multiplier rebalance. Scores saved by an older
+    // version hold a total on the previous multipliers, which lazer rescales when it loads them.
+    private const int LazerMultiplierRebalanceVersion = 30000017;
+
     public static double LazerScoreMultiplier(SimulationRequest request)
     {
         if (request.Version < 30000000)
@@ -14,8 +18,10 @@ public static class ScoreCalibration
 
         var fallback = LazerFallbackMultiplier(request.Mods);
 
-        if (request.SourceScore is null || request.SourceMods != request.Mods ||
-            string.IsNullOrWhiteSpace(request.LazerScoreInfo))
+        // A recorded total from before the rebalance would give the old multiplier; the simulation
+        // scores by the current table, which is what lazer shows for such a replay.
+        if (request.Version < LazerMultiplierRebalanceVersion || request.SourceScore is null ||
+            request.SourceMods != request.Mods || string.IsNullOrWhiteSpace(request.LazerScoreInfo))
             return fallback;
 
         return LazerCalibratedMultiplier(request, fallback);

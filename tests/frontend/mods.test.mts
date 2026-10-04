@@ -41,3 +41,15 @@ describe('mod catalogue', () => {
     assert.deepEqual(acronyms({ mods: 8, lazerMods: ['CL', 'XX'] }), ['HD', 'CL', 'XX']);
   });
 });
+
+test('a simulated score is exported in a current lazer format; anything else keeps its version', async () => {
+  const { exportVersion, lazerRescalesScore, LAZER_VERSION } = await import('../../apps/desktop/src/mods.ts');
+  // Formats before 30000017 hold totals on the old mod multipliers, which lazer rescales on load.
+  assert.equal(exportVersion(30000016, true), LAZER_VERSION);
+  assert.equal(exportVersion(30000016, false), 30000016);
+  assert.equal(lazerRescalesScore(30000016, false), true);
+  assert.equal(exportVersion(30000017, true), 30000017);
+  assert.equal(exportVersion(30000019, true), 30000019);
+  assert.equal(exportVersion(20260711, true), 20260711);
+  assert.equal(lazerRescalesScore(20260711, false), false);
+});

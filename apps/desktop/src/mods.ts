@@ -21,6 +21,18 @@ export const LAZER_VERSION = 30000019;
 export const STABLE_VERSION = 20260711;
 export const isLazerVersion = (version: number) => version >= 30000000;
 
+// Lazer rebalanced its mod score multipliers in replay format 30000017. It treats the total of a
+// replay saved by an older format as scored on the old multipliers and rescales it on load. The
+// simulation scores by the current multipliers, so a simulated score has to be written in a
+// current format, or lazer would scale it a second time.
+const LAZER_REBALANCE_VERSION = 30000017;
+export function exportVersion(version: number, simulatedScore: boolean): number {
+  return isLazerVersion(version) && version < LAZER_REBALANCE_VERSION && simulatedScore ? LAZER_VERSION : version;
+}
+/// The score in an old-format lazer replay is entered by hand: lazer will rescale it.
+export const lazerRescalesScore = (version: number, simulatedScore: boolean) =>
+  isLazerVersion(version) && version < LAZER_REBALANCE_VERSION && !simulatedScore;
+
 const both = { stable: true, lazer: true };
 export const MODS: readonly Mod[] = [
   { acronym: 'EZ', name: 'Easy', group: 'reduction', bit: 2, ...both },

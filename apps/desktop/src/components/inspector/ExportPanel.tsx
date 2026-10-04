@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AlertTriangle, Check, Download, Info } from 'lucide-react';
-import { activeMods, isSimulated } from '../../mods';
+import { activeMods, exportVersion, isSimulated, lazerRescalesScore } from '../../mods';
 import { sidecarRequest } from '../../sidecar';
 import { useEditorStore, type SimulationResult, type Track } from '../../stores/editor';
 import { InfoTip } from '../InfoTip';
@@ -39,6 +39,8 @@ export function ExportPanel({
   // A replay played on stable has no lazer score details; they are built from the simulation.
   const buildsScoreInfo = client === 'lazer' && !metadata.lazerScoreInfo;
   const unsimulated = mods.filter((mod) => !isSimulated(mod));
+  // The format written: an old lazer format is brought up to date when the score is simulated.
+  const version = exportVersion(metadata.version, track.autoScore);
 
   const notes: Note[] = [];
   if (track.autoScore && !whole)
@@ -60,6 +62,11 @@ export function ExportPanel({
       tone: 'warning',
       text: `${unsimulated.map((mod) => mod.acronym).join(', ')} ${unsimulated.length === 1 ? 'is' : 'are'} saved in the replay but not simulated, so the score may differ in game.`,
     });
+  if (lazerRescalesScore(metadata.version, track.autoScore))
+    notes.push({
+      tone: 'warning',
+      text: 'This replay uses a lazer format from before the mod multiplier rebalance. Lazer rescales its score on load, so it will show a different number than the one entered here.',
+    });
   if (!track.autoScore)
     notes.push({ tone: 'warning', text: 'Score and counts were edited by hand and are exported as entered.' });
   if (whole?.status === 'verified' && !track.edited)
@@ -68,6 +75,8 @@ export function ExportPanel({
 
   const exportReplay = async () => {
     setStatus({ busy: true });
+    // The export itself is one quick request; the bar stays long enough to be seen.
+    const shown = new Promise((resolve) => setTimeout(resolve, 500));
     try {
       const result = await sidecarRequest<{ path: string }>('/api/replays/export', {
         method: 'POST',
@@ -76,6 +85,7 @@ export function ExportPanel({
           filename: name || track.replay.filename,
           metadata: {
             ...metadata,
+            version,
             hitCounts: metadata.hitCounts ?? [0, 0, 0, 0, 0, 0],
             maxCombo: metadata.maxCombo ?? 0,
             perfect: metadata.perfect ?? false,
@@ -105,8 +115,10 @@ export function ExportPanel({
           frames: track.replay.frames,
         }),
       });
+      await shown;
       setStatus({ saved: result.path });
     } catch (error) {
+      await shown;
       setStatus({ error: (error as Error).message });
     }
   };
@@ -146,7 +158,7 @@ export function ExportPanel({
           <dt>Format</dt>
           <dd>
             {client === 'lazer' ? 'osu!lazer' : 'osu!stable'}
-            <small>version {metadata.version}</small>
+            <small>version {version}</small>
           </dd>
         </dl>
       </section>
@@ -188,6 +200,14 @@ export function ExportPanel({
           {status.busy ? <Spinner size={12} /> : <Download size={14} />}
           Export .osr for {client === 'lazer' ? 'lazer' : 'stable'}
         </button>
+        {status.busy && (
+          <div className="export-progress" role="status">
+            <div className="acquisition-progress-track" role="progressbar" aria-label="Exporting replay">
+              <span />
+            </div>
+            <small>Writing the replay…</small>
+          </div>
+        )}
         {status.saved && (
           <p className="export-result" role="status">
             Saved to <code>{status.saved}</code>

@@ -6934,3 +6934,12 @@ textarea,
   user-select: text;
   -webkit-user-select: text;
 }
+.export-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.export-progress small {
+  color: #8fa3b8;
+  font-size: 10px;
+}
