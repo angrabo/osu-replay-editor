@@ -140,12 +140,15 @@ jobs:
           $signature = Get-Content -LiteralPath $sigPath -Raw
           $tag = $env:RELEASE_TAG
           $version = $tag.TrimStart('v')
-          # GitHub renames uploaded assets (spaces become dots, "!" is dropped), so take the URL of
+          # GitHub renames uploaded assets (spaces become dots, "!" is dropped), so take the name of
           # the installer asset that actually exists instead of rebuilding it from the local name.
           $assets = gh release view $tag --repo ${{ github.repository }} --json assets | ConvertFrom-Json
           $asset = $assets.assets | Where-Object { $_.name -like '*_x64-setup.exe' } | Select-Object -First 1
           if (-not $asset) { throw "No *_x64-setup.exe asset found on release $tag" }
-          $downloadUrl = $asset.url
+          # The release is still a draft here, and a draft's own asset URL points at a temporary
+          # "untagged-…" path that stops working once it is published. Build the URL the asset
+          # will have after publishing instead.
+          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/$tag/$([uri]::EscapeDataString($asset.name))"
           $manifest = @{
             version = $version
             notes = "See the release notes on GitHub."
