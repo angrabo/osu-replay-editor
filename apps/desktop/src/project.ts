@@ -42,6 +42,45 @@ export type ProjectView = Pick<
   | 'timelineLaneHeight'
 >;
 
+const PROJECT_VIEW_KEYS: (keyof ProjectView)[] = [
+  'playbackRate',
+  'volume',
+  'musicVolume',
+  'showBackground',
+  'backgroundDim',
+  'cursorSize',
+  'showGrid',
+  'compactMode',
+  'wireframeGameplay',
+  'fadeAfterClick',
+  'showHitJudgements',
+  'showHiddenFade',
+  'showSliderEndWindows',
+  'showSliderTracking',
+  'playfieldZoom',
+  'cursorTrailMs',
+  'showCursorPast',
+  'showCursorFuture',
+  'showInputPaths',
+  'showCursorSpeed',
+  'showFrameMarkers',
+  'showGhostCursors',
+  'cursorLayerOrder',
+  'showClickMarkers',
+  'cursorSmoothing',
+  'drawRangeSnap',
+  'timelineWheelMode',
+  'timelineWheelStepMs',
+  'pixelsPerSecond',
+  'timelineLaneHeight',
+];
+
+export function currentProjectView(state: EditorState): ProjectView {
+  const view = {} as ProjectView;
+  for (const key of PROJECT_VIEW_KEYS) (view as Record<string, unknown>)[key] = state[key];
+  return view;
+}
+
 type SerializedReplay = Omit<ImportedReplay, 'sourceBytes'> & { sourceBytes: string };
 type SerializedTrack = Omit<Track, 'replay' | 'originalReplay'> & {
   replay: SerializedReplay;
@@ -57,6 +96,8 @@ export type ProjectFile = {
   archivedMapInfo?: Record<string, MapInfo>;
   view: ProjectView;
   markers?: TimelineMarker[];
+  // Suspicious stretches the user dismissed (see useSuspicions).
+  ignoredSuspicions?: string[];
 };
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -89,6 +130,7 @@ export function serializeProject(
   archivedTracks: Track[] = [],
   archivedMapInfo: Record<string, MapInfo> = {},
   markers: TimelineMarker[] = [],
+  ignoredSuspicions: string[] = [],
 ): ProjectFile {
   const beatmapHash = resolution?.replayHash ?? tracks[0]?.replay.metadata.beatmapHash ?? '';
   const serializeTrack = (track: Track): SerializedTrack => ({
@@ -106,6 +148,7 @@ export function serializeProject(
     archivedMapInfo,
     view,
     markers,
+    ignoredSuspicions,
   };
 }
 
@@ -120,6 +163,7 @@ export function parseProjectFile(raw: string): {
   archivedMapInfo: Record<string, MapInfo>;
   view: ProjectView;
   markers: TimelineMarker[];
+  ignoredSuspicions: string[];
   beatmapHash: string;
 } {
   let parsed: ProjectFile;
@@ -145,6 +189,9 @@ export function parseProjectFile(raw: string): {
     view: parsed.view,
     markers: Array.isArray(parsed.markers)
       ? parsed.markers.filter((marker) => marker && typeof marker.id === 'string' && Number.isFinite(marker.timeMs))
+      : [],
+    ignoredSuspicions: Array.isArray(parsed.ignoredSuspicions)
+      ? parsed.ignoredSuspicions.filter((key) => typeof key === 'string')
       : [],
     beatmapHash: parsed.beatmapHash,
   };

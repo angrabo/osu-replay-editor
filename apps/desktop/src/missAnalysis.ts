@@ -9,7 +9,8 @@ import {
   type SimulationJudgement,
 } from './stores/editor';
 
-export type MissCauseKind = 'no-press' | 'aim' | 'early' | 'late' | 'notelock' | 'slider-break' | 'spinner' | 'unknown';
+export type MissCauseKind =
+  'no-press' | 'aim' | 'early' | 'late' | 'notelock' | 'taken' | 'slider-break' | 'spinner' | 'unknown';
 export type MissCause = { kind: MissCauseKind; summary: string; detail: string };
 export type MissEntry = { objectIndex: number; time: number; kind: BeatmapTimelineObject['kind']; cause: MissCause };
 
@@ -21,8 +22,10 @@ const px = (value: number) => `${Math.round(value)} px`;
 
 /// Why a judged miss happened, from the replay's presses and cursor around the object:
 /// no press at all, a press off the circle (aim), a press outside the 50 window (timing),
-/// a press blocked because the previous object was still waiting (notelock), or a slider that
-/// was hit but then broken.
+/// a press that was spent on another object, a press blocked by the hit order, or a slider that
+/// was hit but then broken. The hit order differs per client: stable locks every later object
+/// until the previous one is hit or its window closes (notelock); lazer only blocks a hit made
+/// before the previous object's own time, and otherwise lets it through.
 export function analyseMisses(input: {
   objects: readonly BeatmapTimelineObject[];
   judgements: readonly SimulationJudgement[];
@@ -32,9 +35,12 @@ export function analyseMisses(input: {
   radius: number;
   hardRock: boolean;
   sliderBreaks: readonly SliderBreak[];
+  client?: 'stable' | 'lazer';
 }): MissEntry[] {
-  const { objects, judgements, frames, keyEvents, windows, radius, hardRock, sliderBreaks } = input;
-  const byIndex = new Map(judgements.map((judgement) => [judgement.objectIndex, judgement]));
+  const { objects, judgements, frames, keyEvents, windows, radius, hardRock, sliderBreaks, client = 'stable' } = input;
+  // Which object each press judged: one press hits one object.
+  const spentOn = new Map<number, number>();
+  for (const item of judgements) if (item.hitTime != null) spentOn.set(Math.round(item.hitTime), item.objectIndex);
   const presses = keyEvents.filter((event) => event.down);
   const breaks = new Map(sliderBreaks.map((item) => [item.objectIndex, item]));
   const entries: MissEntry[] = [];
@@ -84,7 +90,17 @@ export function analyseMisses(input: {
     const onTarget = inWindow.filter((press) => press.distance <= radius);
 
     if (onTarget.length) {
-      const press = onTarget[0];
+      const press = onTarget.find((item) => !spentOn.has(Math.round(item.timeMs)));
+      if (!press) {
+        const taken = onTarget[0];
+        const other = spentOn.get(Math.round(taken.timeMs))! + 1;
+        entry({
+          kind: 'taken',
+          summary: `Press went to #${other}`,
+          detail: `${taken.key} at ${ms(taken.offset)} was on this circle too, but one press hits one object and it judged #${other}. No other press followed.`,
+        });
+        continue;
+      }
       const previous = [...judgements]
         .filter((item) => item.objectIndex < judgement.objectIndex && objects[item.objectIndex]?.kind !== 'spinner')
         .sort((a, b) => b.objectIndex - a.objectIndex)[0];
@@ -92,7 +108,14 @@ export function analyseMisses(input: {
       const previousDone = previous
         ? (previous.hitTime ?? (previousObject ? previousObject.startTime + windows.meh : -Infinity))
         : -Infinity;
-      if (previous && previousDone > press.timeMs)
+      const waiting = !!previous && previousDone > press.timeMs;
+      if (waiting && client === 'lazer' && previousObject && press.timeMs < previousObject.startTime)
+        entry({
+          kind: 'notelock',
+          summary: 'Blocked by hit order',
+          detail: `${press.key} at ${ms(press.offset)} was on the circle, but it came before #${previous.objectIndex + 1}'s own time and that object was not hit yet, so lazer ignored it.`,
+        });
+      else if (waiting && client === 'stable')
         entry({
           kind: 'notelock',
           summary: 'Notelock',
@@ -188,6 +211,7 @@ export function useMissAnalysis(): MissEntry[] | null {
             radius,
             hardRock: (track.exportMetadata.mods & 16) !== 0,
             sliderBreaks,
+            client: simulation.client,
           });
     cached = { inputs, result };
     return result;

@@ -1,6 +1,7 @@
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { Blocks, ChevronDown, ChevronRight, Download, FileText, ScanSearch } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { TabButton } from '../common/TabButton';
+import { ModsPanel } from './ModsPanel';
+import { ExportPanel } from './ExportPanel';
 import { Field } from '../common/Field';
 import { ReplayMetadataEditor } from '../../ReplayMetadataEditor';
 import { formatTime, logicalKeys, nearestReplayFrameTime, useEditorStore } from '../../stores/editor';
@@ -52,16 +53,27 @@ export function Inspector() {
 
   return (
     <section className="panel inspector-panel">
-      <div className="tabs">
-        <TabButton active={tab === 'inspector'} onClick={() => setTab('inspector')}>
-          Inspector
-        </TabButton>
-        <TabButton active={tab === 'mods'} onClick={() => setTab('mods')}>
-          Mods
-        </TabButton>
-        <TabButton active={tab === 'metadata'} onClick={() => setTab('metadata')}>
-          Metadata
-        </TabButton>
+      <div className="tabs icon-tabs">
+        {(
+          [
+            ['inspector', 'Inspector', <ScanSearch size={13} />],
+            ['mods', 'Mods', <Blocks size={13} />],
+            ['metadata', 'Metadata', <FileText size={13} />],
+            ['export', 'Export', <Download size={13} />],
+          ] as const
+        ).map(([id, label, icon]) => (
+          <button
+            key={id}
+            type="button"
+            className={`tab${tab === id ? ' active' : ''}`}
+            title={label}
+            aria-label={label}
+            onClick={() => setTab(id)}
+          >
+            {icon}
+            {tab === id && <span className="tab-label">{label}</span>}
+          </button>
+        ))}
         <PanelPopOutButton panel="inspector" className="in-tabs" />
         <PanelCloseButton panel="inspector" className="in-tabs tight" />
       </div>
@@ -212,12 +224,17 @@ export function Inspector() {
       )}
       {tab === 'mods' && (
         <div className="inspector-body">
-          <ReplayMetadataEditor track={track} simulation={simulation} section="mods" />
+          <ModsPanel track={track} />
         </div>
       )}
       {tab === 'metadata' && (
         <div className="inspector-body">
-          <ReplayMetadataEditor track={track} simulation={simulation} section="metadata" />
+          <ReplayMetadataEditor track={track} simulation={simulation} />
+        </div>
+      )}
+      {tab === 'export' && (
+        <div className="inspector-body">
+          <ExportPanel track={track} simulation={simulation} />
         </div>
       )}
     </section>

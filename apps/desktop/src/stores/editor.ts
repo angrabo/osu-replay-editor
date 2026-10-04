@@ -56,6 +56,8 @@ export type ImportedReplay = {
     lifeGraph?: string;
     targetPracticeAccuracy?: number | null;
     lazerScoreInfo?: string | null;
+    // Lazer mods without a bit in `mods` (Classic, Difficulty Adjust…), by acronym.
+    lazerMods?: string[] | null;
   };
   frames: ReplayFrame[];
   keyEvents: ReplayKeyEvent[];
@@ -248,8 +250,8 @@ export type EditorState = {
   selectedCursorFrameTimes: number[];
   inputKey: InputKey;
   inputDragMode: InputDragMode;
-  filesTab: 'objects' | 'replay' | 'markers' | 'misses';
-  inspectorTab: 'inspector' | 'mods' | 'metadata';
+  filesTab: 'objects' | 'replay' | 'markers' | 'misses' | 'suspicious';
+  inspectorTab: 'inspector' | 'mods' | 'metadata' | 'export';
   selectTrack: (id: string, ctrl: boolean, shift: boolean) => void;
   setPreviewTrack: (id: string | null) => void;
   importReplay: (replay: ImportedReplay) => void;
@@ -307,8 +309,13 @@ export type EditorState = {
   sliderBreaks: SliderBreak[];
   setSliderBreaks: (breaks: SliderBreak[]) => void;
   markers: TimelineMarker[];
+  // Keys of suspicious stretches the user dismissed; saved with the project.
+  ignoredSuspicions: string[];
   editingMarkerId: string | null;
   addMarker: (timeMs: number, note?: string) => string;
+  ignoreSuspicions: (keys: readonly string[]) => void;
+  // Without keys every ignored finding comes back.
+  restoreSuspicions: (keys?: readonly string[]) => void;
   updateMarker: (id: string, patch: Partial<Omit<TimelineMarker, 'id'>>) => void;
   removeMarker: (id: string) => void;
   setEditingMarker: (id: string | null) => void;
@@ -920,6 +927,13 @@ function staleSimulations(state: EditorState, next: readonly Track[]): Record<st
   return simulations;
 }
 
+// How far the cursor may be edited outside the 512×384 playfield. Players aim off it all the time
+// (the game window is wider than the playfield, more so on ultrawide screens), so edits only stop
+// at what a window could still show.
+export const CURSOR_BOUNDS = { minX: -320, maxX: 832, minY: -200, maxY: 584 };
+const clampCursorX = (x: number) => Math.max(CURSOR_BOUNDS.minX, Math.min(CURSOR_BOUNDS.maxX, x));
+const clampCursorY = (y: number) => Math.max(CURSOR_BOUNDS.minY, Math.min(CURSOR_BOUNDS.maxY, y));
+
 export const MIN_PLAYBACK_RATE = 0.001;
 export const MAX_PLAYBACK_RATE = 5;
 
@@ -958,6 +972,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   circleRadius: null,
   sliderBreaks: [],
   markers: [],
+  ignoredSuspicions: [],
   editingMarkerId: null,
   simulationByTrack: {},
   windowStartMs: 0,
@@ -1040,6 +1055,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       tracks: [],
       markers: [],
+      ignoredSuspicions: [],
       editingMarkerId: null,
       selectedTrackIds: [],
       previewTrackId: null,
@@ -1420,6 +1436,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setHitWindows: (hitWindows) => set({ hitWindows }),
   setCircleRadius: (circleRadius) => set({ circleRadius }),
   setSliderBreaks: (sliderBreaks) => set({ sliderBreaks }),
+  ignoreSuspicions: (keys) =>
+    set((state) => {
+      const added = keys.filter((key) => !state.ignoredSuspicions.includes(key));
+      return added.length ? { ignoredSuspicions: [...state.ignoredSuspicions, ...added] } : {};
+    }),
+  restoreSuspicions: (keys) =>
+    set((state) => {
+      const kept = keys ? state.ignoredSuspicions.filter((key) => !keys.includes(key)) : [];
+      return kept.length === state.ignoredSuspicions.length ? {} : { ignoredSuspicions: kept };
+    }),
   addMarker: (timeMs, note = '') => {
     const id = `marker-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     set((state) => ({
@@ -1895,8 +1921,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const frames = track.replay.frames.map((frame, index) => {
         const origin = originFrames[index];
         const weight = weights[index];
-        const nextX = Math.round(Math.max(0, Math.min(512, origin.x + deltaX * weight)) * 10) / 10;
-        const nextY = Math.round(Math.max(0, Math.min(384, origin.y + deltaY * weight)) * 10) / 10;
+        const nextX = Math.round(clampCursorX(origin.x + deltaX * weight) * 10) / 10;
+        const nextY = Math.round(clampCursorY(origin.y + deltaY * weight) * 10) / 10;
         if (nextX === frame.x && nextY === frame.y) return frame;
         changed = true;
         return { ...frame, x: nextX, y: nextY };
@@ -1919,8 +1945,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         if (distance >= radiusPx) return frame;
         const weight = 1 - distance / radiusPx;
         const eased = weight * weight * (3 - 2 * weight) * state.brushStrength;
-        const nextX = Math.max(0, Math.min(512, frame.x + deltaX * eased));
-        const nextY = Math.max(0, Math.min(384, frame.y + deltaY * eased));
+        const nextX = clampCursorX(frame.x + deltaX * eased);
+        const nextY = clampCursorY(frame.y + deltaY * eased);
         return { ...frame, x: Math.round(nextX * 10) / 10, y: Math.round(nextY * 10) / 10 };
       });
       const tracks = state.tracks.map((item) =>

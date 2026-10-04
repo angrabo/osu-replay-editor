@@ -1,4 +1,4 @@
-import { Crosshair, Hand, Link2Off, Lock, RotateCw, Timer, TimerReset, HelpCircle } from 'lucide-react';
+import { CornerUpLeft, Crosshair, Hand, Link2Off, Lock, RotateCw, Timer, TimerReset, HelpCircle } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { formatTime, useEditorStore } from '../../stores/editor';
 import type { MissCauseKind, MissEntry } from '../../missAnalysis';
@@ -9,6 +9,7 @@ const icons: Record<MissCauseKind, ReactNode> = {
   early: <TimerReset size={12} />,
   late: <Timer size={12} />,
   notelock: <Lock size={12} />,
+  taken: <CornerUpLeft size={12} />,
   'slider-break': <Link2Off size={12} />,
   spinner: <RotateCw size={12} />,
   unknown: <HelpCircle size={12} />,

@@ -19,12 +19,14 @@ export function useKeyboardShortcuts({
   undo,
   redo,
   setPlaying,
+  saveProject,
 }: {
   openAcquisition: (action: AcquisitionAction) => void;
   setSettingsOpen: (value: boolean) => void;
   undo: () => void;
   redo: () => void;
   setPlaying: (value: boolean) => void;
+  saveProject: (as: boolean) => void;
 }) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -45,6 +47,11 @@ export function useKeyboardShortcuts({
         case 'open-replays':
           event.preventDefault();
           openAcquisition('select-replays');
+          break;
+        case 'save-project':
+        case 'save-project-as':
+          event.preventDefault();
+          if (state.tracks.length) saveProject(action === 'save-project-as');
           break;
         case 'open-settings':
           event.preventDefault();

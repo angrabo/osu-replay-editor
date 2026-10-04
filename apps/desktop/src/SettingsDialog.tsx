@@ -20,8 +20,10 @@ import type { UpdateCheckResult } from './hooks/useAutoUpdater';
 import { Spinner } from './components/common/Loading';
 import { KeybindSettings } from './components/settings/KeybindSettings';
 import { SkinSettings } from './components/settings/SkinSettings';
+import { InstallSettings } from './components/settings/InstallSettings';
 import { InfoTip } from './components/InfoTip';
 import { clearRecentFiles, readRecentFiles } from './recentFiles';
+import { AUTOSAVE_INTERVALS, useAutosaveStore } from './stores/autosave';
 
 type AccountSettings = { rememberSession: boolean; storageDirectory: string };
 type CategoryId =
@@ -114,7 +116,10 @@ const categories: Category[] = [
     items: [
       { title: 'Recent files', description: 'Projects and replays listed under File › Open recent.' },
       { title: 'Settings location', description: 'Where the editor keeps its settings and cache.' },
-      { title: 'osu! installation', description: 'Optional local beatmap discovery.', planned: true },
+      {
+        title: 'osu! folders',
+        description: 'osu!stable and osu!lazer installation folders for skins, hitsounds and local beatmaps.',
+      },
     ],
   },
   {
@@ -147,6 +152,10 @@ export function SettingsDialog({
   const [settings, setSettings] = useState<AccountSettings | null>(null);
   const [remember, setRemember] = useState(true);
   const [active, setActive] = useState<CategoryId>('general');
+  const autosaveEnabled = useAutosaveStore((state) => state.enabled);
+  const autosaveMinutes = useAutosaveStore((state) => state.minutes);
+  const setAutosaveEnabled = useAutosaveStore((state) => state.setEnabled);
+  const setAutosaveMinutes = useAutosaveStore((state) => state.setMinutes);
   const [query, setQuery] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -328,6 +337,27 @@ export function SettingsDialog({
                   </div>
                 ) : category.id === 'files' ? (
                   <div className="setting-list">
+                    <InstallSettings />
+                    <ToggleRow
+                      title="Autosave project"
+                      info="Saves the open project on a timer when it has changed. A project that was never saved is copied to the app's autosave folder and listed under File › Open recent."
+                      checked={autosaveEnabled}
+                      onChange={setAutosaveEnabled}
+                    />
+                    <SettingRow title="Autosave every" info="How often the project is saved.">
+                      <select
+                        aria-label="Autosave interval"
+                        disabled={!autosaveEnabled}
+                        value={autosaveMinutes}
+                        onChange={(event) => setAutosaveMinutes(Number(event.target.value))}
+                      >
+                        {AUTOSAVE_INTERVALS.map((minutes) => (
+                          <option key={minutes} value={minutes}>
+                            {minutes === 60 ? '1 hour' : `${minutes} minute${minutes === 1 ? '' : 's'}`}
+                          </option>
+                        ))}
+                      </select>
+                    </SettingRow>
                     <SettingRow title="Recent files" info="Projects and replays listed under File › Open recent.">
                       <span className="setting-value">{recentCount ? `${recentCount} saved` : 'Empty'}</span>
                       <button

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Clock3, FolderOpen, LogOut, ShieldCheck, UserRound } from 'lucide-react';
 import { sidecarRequest } from './sidecar';
 import type { Session } from './MapAcquisition';
+import { installPath, useInstallsStore } from './stores/installs';
 
 type Props = {
   session: Session | null;
@@ -17,11 +18,14 @@ export function AccountDialog({ session: initialSession, onClose, onOpenFiles, o
   const [verificationCode, setVerificationCode] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  // Signing in with osu!lazer's own session is offered once its folder is known.
+  const lazerDirectory = useInstallsStore((state) => installPath(state, 'lazer'));
 
   useEffect(() => {
     void sidecarRequest<Session>('/api/auth/status')
       .then(setSession)
       .catch((error) => setMessage((error as Error).message));
+    void useInstallsStore.getState().detect();
   }, []);
 
   function applySession(value: Session) {
@@ -45,6 +49,26 @@ export function AccountDialog({ session: initialSession, onClose, onOpenFiles, o
       setMessage((error as Error).message);
     } finally {
       setPassword('');
+      setBusy(false);
+    }
+  }
+
+  // Uses the session osu!lazer saved in its game.ini. osu! is asked who it belongs to; if it
+  // refuses the token, nothing is signed in and the reason is shown.
+  async function loginWithLazer() {
+    setBusy(true);
+    setMessage('');
+    try {
+      const value = await sidecarRequest<Session>('/api/auth/login/lazer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ directory: lazerDirectory }),
+      });
+      applySession(value);
+      if (value.authenticated) setMessage(`Signed in as ${value.user?.username || 'osu! user'}.`);
+    } catch (error) {
+      setMessage((error as Error).message);
+    } finally {
       setBusy(false);
     }
   }
@@ -183,6 +207,19 @@ export function AccountDialog({ session: initialSession, onClose, onOpenFiles, o
                 Sign in
               </button>
             </form>
+            {lazerDirectory && (
+              <div className="profile-alternative">
+                <span>or</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  title={`Uses the session osu!lazer saved in ${lazerDirectory}\\game.ini. Nothing is changed there.`}
+                  onClick={() => void loginWithLazer()}
+                >
+                  Sign in with osu!lazer's session
+                </button>
+              </div>
+            )}
           </>
         )}
         {message && <p role="status">{message}</p>}

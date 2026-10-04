@@ -11,6 +11,8 @@ export type KeyScope = 'global' | 'playfield' | 'timeline';
 export type KeyActionId =
   | 'open-replays'
   | 'open-settings'
+  | 'save-project'
+  | 'save-project-as'
   | 'undo'
   | 'redo'
   | 'copy'
@@ -52,6 +54,8 @@ export type KeyAction = { id: KeyActionId; label: string; group: string; scope: 
 export const keyActions: KeyAction[] = [
   { id: 'open-replays', label: 'Select replay files', group: 'File', scope: 'global', defaults: ['Ctrl+KeyO'] },
   { id: 'open-settings', label: 'Open settings', group: 'File', scope: 'global', defaults: ['Ctrl+Comma'] },
+  { id: 'save-project', label: 'Save project', group: 'File', scope: 'global', defaults: ['Ctrl+KeyS'] },
+  { id: 'save-project-as', label: 'Save project as', group: 'File', scope: 'global', defaults: ['Ctrl+Shift+KeyS'] },
   { id: 'undo', label: 'Undo', group: 'Edit', scope: 'global', defaults: ['Ctrl+KeyZ'] },
   { id: 'redo', label: 'Redo', group: 'Edit', scope: 'global', defaults: ['Ctrl+KeyY', 'Ctrl+Shift+KeyZ'] },
   { id: 'copy', label: 'Copy selected inputs', group: 'Edit', scope: 'global', defaults: ['Ctrl+KeyC'] },

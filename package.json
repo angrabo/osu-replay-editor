@@ -14,7 +14,7 @@
     "check": "npm run check --workspace @ore/desktop",
     "format": "prettier --write \"apps/desktop/src/**/*.{ts,tsx}\" \"packages/beatmap-viewer/src/**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"apps/desktop/src/**/*.{ts,tsx}\" \"packages/beatmap-viewer/src/**/*.{ts,tsx}\"",
-    "test:viewer": "node --experimental-strip-types --test tests/frontend/beatmap-viewer-parser.test.mts tests/frontend/beatmap-viewer-replay.test.mts tests/frontend/beatmap-viewer-hitsounds.test.mts tests/frontend/project-file.test.mts",
+    "test:viewer": "node --experimental-strip-types --test tests/frontend/beatmap-viewer-parser.test.mts tests/frontend/beatmap-viewer-replay.test.mts tests/frontend/beatmap-viewer-hitsounds.test.mts tests/frontend/project-file.test.mts tests/frontend/suspicion.test.mts tests/frontend/mods.test.mts",
     "test:replay": "node --experimental-strip-types --test tests/frontend/replay-store.test.mts && dotnet test tests/engine/ReplayEditor.M4Smoke/ReplayEditor.M4Smoke.csproj -m:1 -p:NuGetAudit=false -p:UseSharedCompilation=false",
     "test:simulation": "dotnet test tests/engine/ReplayEditor.SimulationSmoke/ReplayEditor.SimulationSmoke.csproj -m:1 -p:NuGetAudit=false -p:UseSharedCompilation=false",
     "test:auth": "dotnet test tests/engine/ReplayEditor.M2Smoke/ReplayEditor.M2Smoke.csproj -m:1 -p:NuGetAudit=false -p:UseSharedCompilation=false"

@@ -1,8 +1,10 @@
 import { create } from 'zustand';
+import { installPath, useInstallsStore } from './installs';
 
 /// App-wide skin and hitsound preferences: which osu! (stable) installation and skin to take
 /// samples (and later graphics) from, and how loud hitsounds play. Saved per machine.
 export type SkinState = {
+  // The osu!stable folder in use; mirrors the installs store.
   osuDirectory: string | null;
   skinName: string | null;
   hitsoundsEnabled: boolean;
@@ -29,20 +31,13 @@ const storageKey = 'osu-replay-editor.skin';
 
 type Saved = Pick<
   SkinState,
-  | 'osuDirectory'
-  | 'skinName'
-  | 'hitsoundsEnabled'
-  | 'hitsoundVolume'
-  | 'useSkinCircles'
-  | 'useSkinCursor'
-  | 'useSkinHitsounds'
+  'skinName' | 'hitsoundsEnabled' | 'hitsoundVolume' | 'useSkinCircles' | 'useSkinCursor' | 'useSkinHitsounds'
 >;
 
 function readSaved(): Saved {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
     return {
-      osuDirectory: typeof saved.osuDirectory === 'string' ? saved.osuDirectory : null,
       skinName: typeof saved.skinName === 'string' ? saved.skinName : null,
       hitsoundsEnabled: saved.hitsoundsEnabled !== false,
       hitsoundVolume:
@@ -55,7 +50,6 @@ function readSaved(): Saved {
     };
   } catch {
     return {
-      osuDirectory: null,
       skinName: null,
       hitsoundsEnabled: true,
       hitsoundVolume: 60,
@@ -71,7 +65,6 @@ function save(state: SkinState) {
     localStorage.setItem(
       storageKey,
       JSON.stringify({
-        osuDirectory: state.osuDirectory,
         skinName: state.skinName,
         hitsoundsEnabled: state.hitsoundsEnabled,
         hitsoundVolume: state.hitsoundVolume,
@@ -97,15 +90,12 @@ export async function readSkinFile(directory: string, skin: string, file: string
 
 export const useSkinStore = create<SkinState>((set, get) => ({
   ...readSaved(),
+  osuDirectory: installPath(useInstallsStore.getState(), 'stable'),
   skinFiles: new Set(),
   skins: [],
   status: 'idle',
   message: '',
-  setOsuDirectory: (osuDirectory) => {
-    set({ osuDirectory, skinName: null });
-    save(get());
-    void get().refresh();
-  },
+  setOsuDirectory: (osuDirectory) => useInstallsStore.getState().setPath('stable', osuDirectory),
   setSkinName: (skinName) => {
     set({ skinName });
     save(get());
@@ -164,19 +154,18 @@ export const useSkinStore = create<SkinState>((set, get) => ({
   },
   // Finds the osu! installation on first run; keeps a folder the user already picked.
   detect: async () => {
+    if (!get().osuDirectory) await useInstallsStore.getState().detect();
     if (get().osuDirectory) return get().refresh();
-    try {
-      const found = await invokeDesktop<{ directory: string; currentSkin: string | null } | null>('detect_osu_stable');
-      if (!found) {
-        set({ status: 'error', message: 'osu! (stable) was not found. Choose its folder in Settings.' });
-        return;
-      }
-      set({ osuDirectory: found.directory, skinName: found.currentSkin });
-      save(get());
-      await get().refresh();
-    } catch (error) {
-      const text = String((error as Error)?.message ?? error);
-      set({ status: text === 'not-desktop' ? 'unavailable' : 'error', message: text === 'not-desktop' ? '' : text });
-    }
+    set({ status: 'error', message: 'osu! (stable) was not found. Choose its folder in Settings › Files.' });
   },
 }));
+
+// The stable folder changed (chosen, cleared or detected): follow it and load that install's skins.
+useInstallsStore.subscribe((state) => {
+  const osuDirectory = installPath(state, 'stable');
+  const previous = useSkinStore.getState().osuDirectory;
+  if (osuDirectory === previous) return;
+  // A different install has different skins; the first detection keeps the remembered skin.
+  useSkinStore.setState(previous ? { osuDirectory, skinName: null } : { osuDirectory });
+  void useSkinStore.getState().refresh();
+});

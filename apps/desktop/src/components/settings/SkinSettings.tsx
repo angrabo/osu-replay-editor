@@ -1,4 +1,3 @@
-import { FolderOpen, RefreshCw } from 'lucide-react';
 import { useSkinStore } from '../../stores/skin';
 import { InfoTip } from '../InfoTip';
 import { Spinner } from '../common/Loading';
@@ -13,7 +12,6 @@ export function SkinSettings() {
   const message = useSkinStore((state) => state.message);
   const hitsoundsEnabled = useSkinStore((state) => state.hitsoundsEnabled);
   const hitsoundVolume = useSkinStore((state) => state.hitsoundVolume);
-  const setOsuDirectory = useSkinStore((state) => state.setOsuDirectory);
   const setSkinName = useSkinStore((state) => state.setSkinName);
   const setHitsoundsEnabled = useSkinStore((state) => state.setHitsoundsEnabled);
   const setHitsoundVolume = useSkinStore((state) => state.setHitsoundVolume);
@@ -39,38 +37,15 @@ export function SkinSettings() {
     </div>
   );
 
-  const browse = async () => {
-    try {
-      const { open } = await import('@tauri-apps/plugin-dialog');
-      const picked = await open({ directory: true, multiple: false, title: 'Choose your osu! folder' });
-      if (typeof picked === 'string') setOsuDirectory(picked);
-    } catch {
-      /* The browser preview has no folder picker. */
-    }
-  };
-
   return (
     <div className="setting-list">
       <div className="setting-row">
         <span className="setting-row-title">
           osu! folder
-          <InfoTip text="The osu! (stable) installation whose Skins folder is used. Found automatically when possible." />
+          <InfoTip text="Skins are read from your osu!stable folder. Change it under Files & cache." />
         </span>
         <div className="setting-row-control">
           <code className="setting-path">{osuDirectory ?? 'Not found'}</code>
-          <button
-            type="button"
-            title="Detect again"
-            onClick={() => {
-              setOsuDirectory(null);
-              void useSkinStore.getState().detect();
-            }}
-          >
-            <RefreshCw size={12} />
-          </button>
-          <button type="button" title="Choose folder" onClick={() => void browse()}>
-            <FolderOpen size={12} />
-          </button>
         </div>
       </div>
       <div className="setting-row">

@@ -29,6 +29,7 @@ import { HitObjectTooltip, type AimInfo } from './HitObjectHover';
 import { replayPointAt } from '@ore/beatmap-viewer';
 import { TimelineMarkers } from './TimelineMarkers';
 import { useMissAnalysis } from '../missAnalysis';
+import { useSuspicions } from '../useSuspicions';
 import { actionForEvent } from '../keybindings';
 import type { Resolution } from '../MapAcquisition';
 import { PanelCloseButton } from '../components/common/PanelCloseButton';
@@ -72,6 +73,7 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
   const hitWindows = useEditorStore((state) => state.hitWindows);
   const sliderBreaks = useEditorStore((state) => state.sliderBreaks);
   const misses = useMissAnalysis();
+  const suspicions = useSuspicions();
   const circleRadius = useEditorStore((state) => state.circleRadius);
   // Cursor position relative to an object when it was hit (or, for a miss, around its time).
   const aimFor = (index: number): AimInfo | null => {
@@ -213,6 +215,7 @@ export function Timeline({ resolution }: { resolution: Resolution | null }) {
     layoutMode,
     simulation,
     sliderBreaks,
+    suspicions,
     showCursorSpeed,
     xForTime,
     laneTop,

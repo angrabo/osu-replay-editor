@@ -2077,10 +2077,6 @@ body.resizing-row * {
   display: flex;
   flex-direction: column;
 }
-.inspector-panel .tabs .tab {
-  flex: 1;
-  padding: 0;
-}
 .inspector-body {
   overflow: auto;
   min-height: 0;
@@ -6024,7 +6020,8 @@ button .spinner {
 .miss-kind.miss-late {
   color: #7fc0ff;
 }
-.miss-kind.miss-notelock {
+.miss-kind.miss-notelock,
+.miss-kind.miss-taken {
   color: #c89bff;
 }
 .miss-kind.miss-slider-break {
@@ -6381,30 +6378,49 @@ button .spinner {
   color: #7f95ab;
   font-size: 10px;
 }
-/* Explorer tabs keep one row; when the panel is narrow they scroll sideways and the pop-out and
-   close buttons stay pinned on the right. */
-.explorer-panel > .tabs {
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: #3a4a5c transparent;
+/* Icon tabs (Explorer, Inspector): icons with a count, and the open tab's name. Everything fits one row without
+   scrolling; in a very narrow panel the name shortens first. */
+.icon-tabs {
+  overflow: hidden;
 }
-.explorer-panel > .tabs > .tab {
-  padding: 0 12px;
+.icon-tabs > .tab {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 30px;
+  padding: 0 8px;
 }
-.explorer-panel > .tabs > .panel-popout {
-  position: sticky;
-  right: 24px;
-  box-shadow: -8px 0 8px #151c25;
-  background: #151c25;
+.icon-tabs > .tab svg {
+  flex: none;
 }
-.explorer-panel > .tabs > .panel-close.tight {
-  position: sticky;
-  right: 0;
-  width: 24px;
-  margin-right: 0;
-  padding-right: 4px;
-  background: #151c25;
+.icon-tabs > .tab.active {
+  flex-shrink: 1;
+  min-width: 0;
+}
+.tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-count {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: #ffffff14;
+  color: #c8d6e4;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.tab.active .tab-count {
+  background: #467fe733;
+  color: #cfe0ff;
+}
+.icon-tabs > .panel-popout,
+.icon-tabs > .panel-close {
+  flex: none;
 }
 /* Text panels while the simulation behind them is outdated (edited, not re-run yet). */
 .text-widget.stale .text-widget-content {
@@ -6414,13 +6430,50 @@ button .spinner {
     opacity 0.25s,
     filter 0.25s;
 }
-.speed-control input {
-  width: 54px;
+.suspicion-kind {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: #ffc247;
+}
+.suspicion-kind.strong {
+  color: #ff7a2f;
+}
+.miss-list-summary .suspicion-kind {
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: #ffffff0a;
+  font-size: 10px;
+}
+.suspicion-strong {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: #ff7a2f26;
+  color: #ff9a5c;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.speed-control {
+  position: relative;
+  display: flex;
+  flex: none;
   height: 26px;
-  padding: 0 7px;
   border: 1px solid #2b3947;
   border-radius: 4px;
   background: #1b2530;
+}
+.speed-control:focus-within {
+  border-color: #467fe7;
+}
+.speed-control input {
+  width: 46px;
+  min-width: 0;
+  padding: 0 2px 0 7px;
+  border: 0;
+  background: none;
   color: #dce6f0;
   font: inherit;
   font-size: 12px;
@@ -6429,5 +6482,455 @@ button .spinner {
 }
 .speed-control input:focus {
   outline: none;
+}
+.center-transport-right .speed-control-toggle {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 24px;
+  border-radius: 0 3px 3px 0;
+  color: #8d9cac;
+}
+.center-transport-right .speed-control-toggle:hover,
+.center-transport-right .speed-control-toggle[aria-expanded='true'] {
+  background: #263442;
+  color: #fff;
+}
+.speed-control-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
+  width: 84px;
+  padding: 4px;
+  border: 1px solid #41536a;
+  border-radius: 5px;
+  background: #1b2531;
+  box-shadow: 0 12px 28px #000a;
+}
+.center-transport-right .speed-control-menu button {
+  display: block;
+  width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 3px;
+  color: #dbe6f2;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.center-transport-right .speed-control-menu button:hover {
+  background: #315378;
+}
+.center-transport-right .speed-control-menu button.active {
+  color: #7fb2ff;
+  font-weight: 600;
+}
+.suspicion-ignored {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.suspicion-ignored button {
+  padding: 1px 7px;
+  border: 1px solid #2b3947;
+  border-radius: 4px;
+  background: none;
+  color: #9fb4c9;
+  font-size: 10px;
+}
+.suspicion-ignored button:hover {
+  color: #fff;
   border-color: #467fe7;
+}
+.suspicion-ignored button + button {
+  margin-left: -4px;
+}
+.miss-list-row.ignored {
+  opacity: 0.5;
+}
+.miss-list-row.ignored .marker-list-note {
+  text-decoration: line-through;
+  text-decoration-color: #ffffff55;
+}
+
+/* Game client switch: one of two, with the locked side dimmed. */
+.client-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid #2b3947;
+  border-radius: 6px;
+  background: #121a23;
+}
+.client-switch button {
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: #9fb0c2;
+  font-size: 11px;
+  font-weight: 600;
+}
+.client-switch button:hover:not(:disabled):not(.active) {
+  color: #fff;
+  background: #ffffff0d;
+}
+.client-switch button.active {
+  background: #2f5fb8;
+  color: #fff;
+}
+.client-switch button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Mods tab: a flat list per group instead of boxed tiles. */
+.mods-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 2px 8px;
+}
+.mods-lock-note {
+  margin: -4px 0 0;
+  color: #8fa3b8;
+  font-size: 10px;
+  line-height: 1.35;
+}
+.mods-active {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #222c38;
+}
+.mods-active-label {
+  margin-right: 4px;
+  color: #7f93a8;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mods-active .info-tip {
+  margin-left: auto;
+}
+.mods-none {
+  color: #6f8398;
+  font-size: 11px;
+}
+.mod-tag {
+  height: 18px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--mod-colour, #5d7186);
+  color: #0b1119;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 18px;
+}
+button.mod-tag:hover {
+  filter: brightness(1.2);
+}
+.mod-tag.static {
+  display: inline-block;
+  margin-right: 3px;
+}
+.mods-group,
+.mod-tag {
+  --mod-colour: #9aa9ba;
+}
+.mods-group.reduction,
+.mod-tag.reduction {
+  --mod-colour: #8fd66f;
+}
+.mods-group.increase,
+.mod-tag.increase {
+  --mod-colour: #ff7a7a;
+}
+.mods-group.automation,
+.mod-tag.automation {
+  --mod-colour: #6fc3ff;
+}
+.mods-group.conversion,
+.mod-tag.conversion {
+  --mod-colour: #b99cff;
+}
+.mods-group.fun,
+.mod-tag.fun {
+  --mod-colour: #ff9ad2;
+}
+.mods-group-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mod-colour);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-align: left;
+  text-transform: uppercase;
+}
+.mods-group-title > span {
+  color: #6f8398;
+  font-weight: 500;
+}
+button.mods-group-title:hover {
+  filter: brightness(1.25);
+}
+.mods-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 2px 6px;
+}
+.mod-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px 0 3px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: #b9c6d4;
+  font-size: 11px;
+  text-align: left;
+}
+.mod-row b {
+  flex: none;
+  width: 30px;
+  height: 17px;
+  border-radius: 3px;
+  background: #ffffff0f;
+  color: var(--mod-colour);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+}
+.mod-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mod-row i {
+  flex: none;
+  width: 4px;
+  height: 4px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: #5d7186;
+}
+.mod-row:hover {
+  background: #ffffff0d;
+  color: #fff;
+}
+.mod-row.active {
+  background: color-mix(in srgb, var(--mod-colour) 16%, transparent);
+  color: #fff;
+}
+.mod-row.active b {
+  background: var(--mod-colour);
+  color: #0b1119;
+}
+
+/* Export tab. */
+.export-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 2px 2px 8px;
+}
+.export-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.export-block h4 {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  color: #7f93a8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.export-summary {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 5px 8px;
+  margin: 0;
+  font-size: 12px;
+}
+.export-summary dt {
+  color: #7f93a8;
+}
+.export-summary dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #e5eaf1;
+  text-overflow: ellipsis;
+}
+.export-summary small {
+  margin-left: 6px;
+  color: #6f8398;
+  font-size: 10px;
+}
+.export-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 8px 0;
+  border-top: 1px solid #222c38;
+  border-bottom: 1px solid #222c38;
+  list-style: none;
+}
+.export-notes li {
+  display: flex;
+  gap: 7px;
+  color: #b9c6d4;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.export-notes svg {
+  flex: none;
+  margin-top: 2px;
+}
+.export-notes .ok svg {
+  color: #59d98e;
+}
+.export-notes .info svg {
+  color: #6fc3ff;
+}
+.export-notes .warning svg {
+  color: #ffc247;
+}
+.export-notes .blocked {
+  color: #ffb3ba;
+}
+.export-notes .blocked svg {
+  color: #ff6575;
+}
+.export-name {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #2b3947;
+  border-radius: 4px;
+  background: #121a23;
+  color: #e5eaf1;
+  font: inherit;
+  font-size: 12px;
+}
+.export-name:focus {
+  outline: none;
+  border-color: #467fe7;
+}
+.export-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 32px;
+  border: 0;
+  border-radius: 5px;
+  background: #2f5fb8;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+.export-button:hover:not(:disabled) {
+  background: #3a70d4;
+}
+.export-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.export-result {
+  margin: 0;
+  color: #9fd9b4;
+  font-size: 11px;
+  line-height: 1.35;
+  word-break: break-all;
+}
+.export-result.error {
+  color: #ffb3ba;
+}
+.export-result code {
+  color: #e5eaf1;
+}
+.track-menu button.danger {
+  color: #ff8994;
+}
+.track-menu button.danger:hover {
+  background: #5a2630;
+  color: #fff;
+}
+
+.profile-alternative {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 10px;
+}
+.profile-alternative > span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #6f8398;
+  font-size: 11px;
+}
+.profile-alternative > span::before,
+.profile-alternative > span::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #2b3947;
+}
+.profile-alternative > button {
+  height: 34px;
+  border: 1px solid #3a4a5c;
+  border-radius: 6px;
+  background: #1b2530;
+  color: #e5eaf1;
+  font-size: 13px;
+}
+.profile-alternative > button:hover:not(:disabled) {
+  border-color: #467fe7;
+  background: #22303f;
+}
+.profile-alternative > button:disabled {
+  opacity: 0.5;
+}
+
+/* The editor is a tool, not a document: text is not selectable, except where it is typed or is
+   meant to be copied. */
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+input,
+textarea,
+[contenteditable='true'],
+.setting-path,
+.export-result code {
+  user-select: text;
+  -webkit-user-select: text;
 }

@@ -1,6 +1,7 @@
 import { Application, Graphics } from 'pixi.js';
 import { inputVariantColor, speedColor, type SliderBreak } from '@ore/beatmap-viewer';
 import { useEffect, useRef, useState } from 'react';
+import type { Suspicion } from '../suspicion';
 import {
   logicalKeys,
   type BeatmapTimelineObject,
@@ -49,6 +50,8 @@ export function useTimelineCanvas(params: {
   layoutMode: TimelineLayout;
   simulation: SimulationResult | null;
   sliderBreaks: readonly SliderBreak[];
+  // Stretches that do not look hand-played, marked along the top of the Judgements lane.
+  suspicions: readonly Suspicion[];
   // Colour the cursor X/Y curves by cursor speed, like the playfield speed heatmap.
   showCursorSpeed: boolean;
   xForTime: (time: number) => number;
@@ -66,6 +69,7 @@ export function useTimelineCanvas(params: {
     layoutMode,
     simulation,
     sliderBreaks,
+    suspicions,
     showCursorSpeed,
     xForTime,
     laneTop,
@@ -238,6 +242,18 @@ export function useTimelineCanvas(params: {
         }
       }
     }
+    {
+      // Suspicious stretches: an amber bar (orange when strong) along the top of the lane.
+      const y = laneTop(7) + 2;
+      for (const item of suspicions) {
+        const left = xForTime(item.startMs);
+        const right = xForTime(item.endMs);
+        if (right < -4 || left > canvasWidth + 4) continue;
+        graphics
+          .rect(left, y, Math.max(3, right - left), 3)
+          .fill({ color: item.strong ? 0xff7a2f : 0xffc247, alpha: item.strong ? 0.95 : 0.7 });
+      }
+    }
     if (simulation) {
       const y = laneTop(7) + laneHeights[7] / 2;
       const colours = { '100': 0x59d98e, '50': 0xf29a4a, miss: 0xff6575 } as const;
@@ -320,6 +336,7 @@ export function useTimelineCanvas(params: {
     layoutMode,
     simulation,
     sliderBreaks,
+    suspicions,
     showCursorSpeed,
   ]);
 

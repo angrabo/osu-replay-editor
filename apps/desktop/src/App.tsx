@@ -23,55 +23,11 @@ import { useLayoutStore, type FloatablePanelId, type PanelId } from './stores/la
 import { FloatingPanel } from './components/common/FloatingPanel';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAutoUpdater } from './hooks/useAutoUpdater';
-import { formatTime, useEditorStore, type EditorState } from './stores/editor';
-import {
-  parseProjectFile,
-  projectFileName,
-  serializeProject,
-  PROJECT_FILE_EXTENSION,
-  type ProjectView,
-} from './project';
+import { formatTime, useEditorStore } from './stores/editor';
+import { parseProjectFile, PROJECT_FILE_EXTENSION } from './project';
+import { useProjectFile } from './hooks/useProjectFile';
 import { ExportClipDialog } from './export/ExportClipDialog';
 import { forgetRecentFile, readUserFile, recordRecentFile, type RecentFile } from './recentFiles';
-
-const PROJECT_VIEW_KEYS: (keyof ProjectView)[] = [
-  'playbackRate',
-  'volume',
-  'musicVolume',
-  'showBackground',
-  'backgroundDim',
-  'cursorSize',
-  'showGrid',
-  'compactMode',
-  'wireframeGameplay',
-  'fadeAfterClick',
-  'showHitJudgements',
-  'showHiddenFade',
-  'showSliderEndWindows',
-  'showSliderTracking',
-  'playfieldZoom',
-  'cursorTrailMs',
-  'showCursorPast',
-  'showCursorFuture',
-  'showInputPaths',
-  'showCursorSpeed',
-  'showFrameMarkers',
-  'showGhostCursors',
-  'cursorLayerOrder',
-  'showClickMarkers',
-  'cursorSmoothing',
-  'drawRangeSnap',
-  'timelineWheelMode',
-  'timelineWheelStepMs',
-  'pixelsPerSecond',
-  'timelineLaneHeight',
-];
-
-function currentProjectView(state: EditorState): ProjectView {
-  const view = {} as ProjectView;
-  for (const key of PROJECT_VIEW_KEYS) (view as Record<string, unknown>)[key] = state[key];
-  return view;
-}
 
 export default function App() {
   useEffect(() => {
@@ -181,6 +137,15 @@ export default function App() {
     return () => cancelAnimationFrame(frame);
   }, [playing, resolution]);
 
+  // The last replay of the open map was removed: the map leaves the editor with it.
+  useEffect(
+    () =>
+      useEditorStore.subscribe((state, previous) => {
+        if (previous.tracks.length > 0 && state.tracks.length === 0) setResolution(null);
+      }),
+    [],
+  );
+
   const openAcquisition = (action: AcquisitionAction) => {
     setAcquisitionAction(action);
     setAcquisitionOpen(true);
@@ -202,47 +167,16 @@ export default function App() {
       .catch(() => useEditorStore.getState().setMapLoadStatus(beatmapHash, 'error'));
   };
   const projectFileInputRef = useRef<HTMLInputElement>(null);
-  const handleSaveProject = () => {
-    const state = useEditorStore.getState();
-    const project = serializeProject(
-      state.tracks,
-      currentProjectView(state),
-      resolution,
-      state.archivedTracks,
-      state.archivedMapInfo,
-      state.markers,
-    );
-    const json = JSON.stringify(project);
-    const suggestedName = projectFileName(project);
-    void import('@tauri-apps/api/core')
-      .then(async ({ isTauri }) => {
-        if (!isTauri()) throw new Error('not-tauri');
-        const [{ save }, { writeTextFile }] = await Promise.all([
-          import('@tauri-apps/plugin-dialog'),
-          import('@tauri-apps/plugin-fs'),
-        ]);
-        const path = await save({
-          defaultPath: suggestedName,
-          filters: [{ name: 'osu! Replay Editor project', extensions: [PROJECT_FILE_EXTENSION] }],
-        });
-        if (!path) return;
-        await writeTextFile(path, json);
-        recordRecentFile('project', [path]);
-      })
-      .catch(() => {
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = suggestedName;
-        anchor.click();
-        URL.revokeObjectURL(url);
-      });
-  };
-  const loadProjectText = (text: string) => {
-    const { tracks, archivedTracks, archivedMapInfo, view, markers, beatmapHash } = parseProjectFile(text);
+  const projectFile = useProjectFile(resolution);
+  // `path` is the file the project came from, so saving goes back to it. Autosaved copies of a
+  // never-saved project are not adopted: saving one asks where the project should live.
+  const loadProjectText = (text: string, path: string | null = null) => {
+    const { tracks, archivedTracks, archivedMapInfo, view, markers, ignoredSuspicions, beatmapHash } =
+      parseProjectFile(text);
+    projectFile.opened(null);
     useEditorStore.getState().loadProjectTracks(tracks, archivedTracks, archivedMapInfo);
-    useEditorStore.setState({ ...view, markers, editingMarkerId: null });
+    useEditorStore.setState({ ...view, markers, ignoredSuspicions, editingMarkerId: null });
+    projectFile.opened(path && !/[\\/]autosave[\\/][^\\/]+$/i.test(path) ? path : null);
     if (beatmapHash)
       void sidecarRequest<Resolution>(`/api/beatmaps/resolve/${beatmapHash}`)
         .then((next) => setResolution(next))
@@ -261,7 +195,7 @@ export default function App() {
           filters: [{ name: 'osu! Replay Editor project', extensions: [PROJECT_FILE_EXTENSION] }],
         });
         if (!path || Array.isArray(path)) return;
-        loadProjectText(await readTextFile(path));
+        loadProjectText(await readTextFile(path), path);
         recordRecentFile('project', [path]);
       })
       .catch((error) => {
@@ -280,7 +214,7 @@ export default function App() {
     }
     void readUserFile(entry.paths[0])
       .then((buffer) => {
-        loadProjectText(new TextDecoder().decode(buffer));
+        loadProjectText(new TextDecoder().decode(buffer), entry.paths[0]);
         recordRecentFile('project', entry.paths);
       })
       .catch((error) => {
@@ -299,7 +233,14 @@ export default function App() {
         useEditorStore.setState({ lastEditMessage: `Could not open project: ${(error as Error).message}` });
       });
   };
-  useKeyboardShortcuts({ openAcquisition, setSettingsOpen, undo, redo, setPlaying });
+  useKeyboardShortcuts({
+    openAcquisition,
+    setSettingsOpen,
+    undo,
+    redo,
+    setPlaying,
+    saveProject: (as) => void projectFile.save({ as }),
+  });
   const { pendingUpdate, installing, installError, progress, install, dismiss, checkNow, checkResult } =
     useAutoUpdater();
 
@@ -327,7 +268,8 @@ export default function App() {
           resetLeftSource={() => setLeftSource('preview')}
           setSettingsOpen={setSettingsOpen}
           setChangelogOpen={setChangelogOpen}
-          onSaveProject={handleSaveProject}
+          onSaveProject={() => void projectFile.save()}
+          onSaveProjectAs={() => void projectFile.save({ as: true })}
           onOpenProject={handleOpenProject}
           onOpenRecent={handleOpenRecent}
           onExportClip={() => setExportOpen(true)}

@@ -8,6 +8,7 @@ export function FileMenu({
   hasTracks,
   onAction,
   onSaveProject,
+  onSaveProjectAs,
   onOpenProject,
   onOpenRecent,
   onExportClip,
@@ -15,6 +16,7 @@ export function FileMenu({
   hasTracks: boolean;
   onAction: (action: AcquisitionAction) => void;
   onSaveProject: () => void;
+  onSaveProjectAs: () => void;
   onOpenProject: () => void;
   onOpenRecent: (entry: RecentFile) => void;
   onExportClip: () => void;
@@ -38,7 +40,10 @@ export function FileMenu({
         Open project…
       </button>
       <button role="menuitem" disabled={!hasTracks} onClick={onSaveProject}>
-        Save project…
+        Save project {shortcutLabel('save-project') && <kbd>{shortcutLabel('save-project')}</kbd>}
+      </button>
+      <button role="menuitem" disabled={!hasTracks} onClick={onSaveProjectAs}>
+        Save project as… {shortcutLabel('save-project-as') && <kbd>{shortcutLabel('save-project-as')}</kbd>}
       </button>
       <div className="menu-separator" />
       <button role="menuitem" disabled={!hasTracks} onClick={onExportClip}>

@@ -1,10 +1,23 @@
 import { MarkerList } from './MarkerList';
 import { MissList } from './MissList';
+import { SuspicionList } from './SuspicionList';
+import { useSuspicions } from '../../useSuspicions';
 import { useMissAnalysis } from '../../missAnalysis';
 import { useEffect, useState } from 'react';
 import { replayPointAt } from '@ore/beatmap-viewer';
-import { AlertTriangle, ChevronDown, File, Folder, Search, Trash2 } from 'lucide-react';
-import { TabButton } from '../common/TabButton';
+import {
+  AlertTriangle,
+  Bookmark,
+  ChevronDown,
+  CircleDot,
+  CircleX,
+  File,
+  Files,
+  Folder,
+  Search,
+  ShieldAlert,
+  Trash2,
+} from 'lucide-react';
 import { useEditorStore, type BeatmapTimelineObject, type MapInfo, type Track } from '../../stores/editor';
 import type { Resolution } from '../../MapAcquisition';
 import { PanelCloseButton } from '../common/PanelCloseButton';
@@ -112,6 +125,7 @@ export function Explorer({
   const removeTracks = useEditorStore((state) => state.removeTracks);
   const markerCount = useEditorStore((state) => state.markers.length);
   const misses = useMissAnalysis();
+  const suspicions = useSuspicions();
   const previewTrack = tracks.find((track) => track.id === previewTrackId);
   // Map coordinates are stored unflipped; HR mirrors the playfield vertically, like the replay frames.
   const hardRock = ((previewTrack?.exportMetadata.mods ?? 0) & 16) !== 0;
@@ -158,19 +172,30 @@ export function Explorer({
 
   return (
     <section className="panel explorer-panel">
-      <div className="tabs">
-        <TabButton active={tab === 'objects'} onClick={() => setTab('objects')}>
-          Objects
-        </TabButton>
-        <TabButton active={tab === 'replay'} onClick={() => setTab('replay')}>
-          Replays
-        </TabButton>
-        <TabButton active={tab === 'markers'} onClick={() => setTab('markers')}>
-          Markers{markerCount ? ` ${markerCount}` : ''}
-        </TabButton>
-        <TabButton active={tab === 'misses'} onClick={() => setTab('misses')}>
-          Misses{misses?.length ? ` ${misses.length}` : ''}
-        </TabButton>
+      <div className="tabs icon-tabs">
+        {(
+          [
+            ['replay', 'Replays', <Files size={13} />, 0],
+            ['objects', 'Objects', <CircleDot size={13} />, 0],
+            ['misses', 'Misses', <CircleX size={13} />, misses?.length ?? 0],
+            ['suspicious', 'Suspicious', <ShieldAlert size={13} />, suspicions.length],
+            ['markers', 'Markers', <Bookmark size={13} />, markerCount],
+          ] as const
+        ).map(([id, label, icon, count]) => (
+          // Icons keep all five tabs in one row; only the open tab spells out its name.
+          <button
+            key={id}
+            type="button"
+            className={`tab${tab === id ? ' active' : ''}`}
+            title={count ? `${label} (${count})` : label}
+            aria-label={label}
+            onClick={() => setTab(id)}
+          >
+            {icon}
+            {tab === id && <span className="tab-label">{label}</span>}
+            {count > 0 && <span className="tab-count">{count > 999 ? '999+' : count}</span>}
+          </button>
+        ))}
         <PanelPopOutButton panel="explorer" className="in-tabs" />
         <PanelCloseButton panel="explorer" className="in-tabs tight" />
       </div>
@@ -182,6 +207,8 @@ export function Explorer({
         <MarkerList search={search} />
       ) : tab === 'misses' ? (
         <MissList misses={misses} search={search} />
+      ) : tab === 'suspicious' ? (
+        <SuspicionList search={search} />
       ) : (
         <div className="file-tree">
           {rows

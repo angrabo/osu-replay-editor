@@ -69,6 +69,32 @@ fn read_user_file(path: String) -> Result<tauri::ipc::Response, String> {
         .map_err(|error| error.to_string())
 }
 
+/// <summary>
+/// Writes a project (.oreproj) by path, for saving in place and autosave: those run without a
+/// save dialog, so the path is outside the dialog-granted file scope. Only project files can be
+/// written. The file is replaced in one step, so a crash mid-save cannot leave half a project.
+/// </summary>
+#[tauri::command]
+fn write_project_file(path: String, contents: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    let is_project = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("oreproj"));
+    if !is_project {
+        return Err("Only .oreproj projects can be saved.".into());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let temporary = path.with_extension("oreproj.tmp");
+    std::fs::write(&temporary, contents).map_err(|error| error.to_string())?;
+    std::fs::rename(&temporary, &path).map_err(|error| {
+        let _ = std::fs::remove_file(&temporary);
+        error.to_string()
+    })
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateDiagnosis {
@@ -220,6 +246,7 @@ pub fn run() {
             stop_sidecar_for_update,
             diagnose_update,
             read_user_file,
+            write_project_file,
             skins::detect_osu_stable,
             skins::osu_stable_current_skin,
             skins::list_stable_skins,

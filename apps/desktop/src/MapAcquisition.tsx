@@ -4,6 +4,7 @@ import { sidecarRequest } from './sidecar';
 import { useEditorStore, type ImportedReplay, type MapInfo } from './stores/editor';
 import { fileName, isDesktop, readUserFile, recordRecentFile } from './recentFiles';
 import { Spinner } from './components/common/Loading';
+import { installPath, useInstallsStore } from './stores/installs';
 
 export type Session = {
   authenticated: boolean;
@@ -37,16 +38,7 @@ export type Resolution = {
   difficulties: Difficulty[];
   assets: string[];
 };
-type LocalLocations = { stable: string | null; lazer: string | null };
 type SearchStep = { label: string; state: 'waiting' | 'running' | 'done' | 'missed' };
-const locationStorageKey = 'ore-map-locations';
-function savedLocations(): LocalLocations {
-  try {
-    return { stable: null, lazer: null, ...JSON.parse(localStorage.getItem(locationStorageKey) || '{}') };
-  } catch {
-    return { stable: null, lazer: null };
-  }
-}
 
 export type AcquisitionAction = 'open' | 'select-replays' | 'select-map' | 'new-map' | 'recent-replays';
 
@@ -98,8 +90,9 @@ export function MapAcquisition({
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [activity, setActivity] = useState<string | null>(null);
-  const [locations, setLocations] = useState<LocalLocations>(savedLocations);
-  const [detectedLocations, setDetectedLocations] = useState<LocalLocations>({ stable: null, lazer: null });
+  // The osu! folders are shared with the rest of the app (Settings › Files).
+  const locations = useInstallsStore((state) => state.chosen);
+  const detectedLocations = useInstallsStore((state) => state.detected);
   const [showLocations, setShowLocations] = useState(false);
   const [searchSteps, setSearchSteps] = useState<SearchStep[]>([]);
   const replayInput = useRef<HTMLInputElement>(null);
@@ -152,16 +145,10 @@ export function MapAcquisition({
     };
     setSearchSteps([...steps]);
     try {
-      let detected: LocalLocations = { stable: null, lazer: null };
-      try {
-        detected = await sidecarRequest<LocalLocations>('/api/beatmaps/local/locations');
-        setDetectedLocations(detected);
-      } catch {
-        /* The online resolver can still work. */
-      }
+      await useInstallsStore.getState().detect();
       let value: Resolution | null = null;
       for (const [index, client] of (['stable', 'lazer'] as const).entries()) {
-        const directory = locations[client] || detected[client];
+        const directory = installPath(useInstallsStore.getState(), client);
         if (!directory) {
           updateStep(index, 'missed');
           continue;
@@ -374,11 +361,7 @@ export function MapAcquisition({
   const needsMap = header && resolution?.status !== 'verified' && searchSteps.length > 0 && !busy;
   const canDownload = session?.authenticated === true;
 
-  function setLocation(client: 'stable' | 'lazer', path: string) {
-    const next = { ...locations, [client]: path || null };
-    setLocations(next);
-    localStorage.setItem(locationStorageKey, JSON.stringify(next));
-  }
+  const setLocation = (client: 'stable' | 'lazer', path: string) => useInstallsStore.getState().setPath(client, path);
 
   async function chooseLocation(client: 'stable' | 'lazer') {
     if (!(await isDesktop())) return;

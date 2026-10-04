@@ -1,8 +1,7 @@
 import { useState, type ReactNode } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, Download, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import { InfoTip } from './components/InfoTip';
-import { Spinner } from './components/common/Loading';
-import { sidecarRequest } from './sidecar';
+import { ClientSwitch } from './components/inspector/ClientSwitch';
 import {
   simulationMetadataPatch,
   useEditorStore,
@@ -10,46 +9,6 @@ import {
   type SimulationResult,
   type Track,
 } from './stores/editor';
-
-type ModGroup = 'reduction' | 'increase' | 'automation' | 'other';
-
-const modOptions: readonly (readonly [string, number, string, ModGroup])[] = [
-  ['EZ', 2, 'Easy', 'reduction'],
-  ['NF', 1, 'No Fail', 'reduction'],
-  ['HT', 256, 'Half Time', 'reduction'],
-  ['HR', 16, 'Hard Rock', 'increase'],
-  ['SD', 32, 'Sudden Death', 'increase'],
-  ['PF', 16384, 'Perfect', 'increase'],
-  ['DT', 64, 'Double Time', 'increase'],
-  ['NC', 512, 'Nightcore', 'increase'],
-  ['HD', 8, 'Hidden', 'increase'],
-  ['FL', 1024, 'Flashlight', 'increase'],
-  ['FI', 1048576, 'Fade In', 'increase'],
-  ['RX', 128, 'Relax', 'automation'],
-  ['AP', 8192, 'Autopilot', 'automation'],
-  ['SO', 4096, 'Spun Out', 'automation'],
-  ['AT', 2048, 'Autoplay', 'automation'],
-  ['CN', 4194304, 'Cinema', 'automation'],
-  ['TP', 8388608, 'Target Practice', 'automation'],
-  ['TD', 4, 'Touch Device', 'other'],
-  ['SV2', 536870912, 'Score V2', 'other'],
-  ['RD', 2097152, 'Random', 'other'],
-  ['4K', 32768, '4 Keys', 'other'],
-  ['5K', 65536, '5 Keys', 'other'],
-  ['6K', 131072, '6 Keys', 'other'],
-  ['7K', 262144, '7 Keys', 'other'],
-  ['8K', 524288, '8 Keys', 'other'],
-  ['9K', 16777216, '9 Keys', 'other'],
-];
-
-const modGroups: readonly (readonly [ModGroup, string])[] = [
-  ['reduction', 'Difficulty reduction'],
-  ['increase', 'Difficulty increase'],
-  ['automation', 'Automation'],
-  ['other', 'Other'],
-];
-
-const simulatedMods = [1, 2, 8, 16, 64, 256, 512, 1024, 4096];
 
 function MetaCard({
   title,
@@ -196,15 +155,11 @@ const judgementLabels = [
 export function ReplayMetadataEditor({
   track,
   simulation,
-  section,
 }: {
   track: Track | undefined;
   simulation: SimulationResult | null | undefined;
-  section: 'mods' | 'metadata';
 }) {
   const setMetadata = useEditorStore((state) => state.setTrackMetadata);
-  const [exportName, setExportName] = useState('');
-  const [exportState, setExportState] = useState('');
   if (!track)
     return (
       <p className="sample-note">
@@ -221,124 +176,9 @@ export function ReplayMetadataEditor({
     hitCounts[index] = value;
     update({ hitCounts }, false);
   };
-  const changeMod = (bit: number) => {
-    let mods = metadata.mods ^ bit;
-    if (bit === 512) mods = mods & 512 ? mods | 64 : mods & ~64;
-    if (bit === 16384) mods = mods & 16384 ? mods | 32 : mods & ~32;
-    if (bit === 64 && !(mods & 64)) mods &= ~512;
-    if (bit === 32 && !(mods & 32)) mods &= ~16384;
-    if (mods & bit) {
-      if (bit === 2) mods &= ~16;
-      if (bit === 16) mods &= ~2;
-      if (bit === 64 || bit === 512) mods &= ~256;
-      if (bit === 256) mods &= ~(64 | 512);
-      if (bit === 32 || bit === 16384) mods &= ~1;
-      if (bit === 1) mods &= ~(32 | 16384);
-    }
-    update({ mods }, true);
-  };
-  const exportReplay = async () => {
-    setExportState('Exporting…');
-    try {
-      const result = await sidecarRequest<{ path: string }>('/api/replays/export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filename: exportName || track.replay.filename,
-          metadata: {
-            ...metadata,
-            hitCounts: metadata.hitCounts ?? [0, 0, 0, 0, 0, 0],
-            maxCombo: metadata.maxCombo ?? 0,
-            perfect: metadata.perfect ?? false,
-            lifeGraph: metadata.lifeGraph ?? '',
-            targetPracticeAccuracy: metadata.targetPracticeAccuracy ?? null,
-            rngSeed: metadata.rngSeed ?? null,
-            lazerScoreInfo: metadata.lazerScoreInfo ?? null,
-          },
-          frames: track.replay.frames,
-        }),
-      });
-      setExportState(`Saved: ${result.path}`);
-    } catch (error) {
-      setExportState((error as Error).message);
-    }
-  };
-
-  if (section === 'mods') {
-    const active = modOptions.filter(([, bit]) => (metadata.mods & bit) !== 0);
-    return (
-      <div className="meta-stack">
-        <MetaCard
-          title="Active mods"
-          info="Changing mods reruns the whole replay simulation and adopts its score. Mods without a simulated effect stay estimates."
-        >
-          <div className="mod-summary">
-            {active.length ? (
-              active.map(([name, , fullName, group]) => (
-                <span key={name} className={`mod-chip small ${group} active`} title={fullName}>
-                  {name}
-                </span>
-              ))
-            ) : (
-              <span className="mod-summary-empty">No mods</span>
-            )}
-            <label className="mod-bitmask" title="Raw mods bitmask">
-              <span>#</span>
-              <input
-                key={`mods-${metadata.mods}`}
-                type="number"
-                min="0"
-                max="2147483647"
-                defaultValue={metadata.mods}
-                onBlur={(event) => {
-                  const mods = Number(event.currentTarget.value);
-                  if (Number.isSafeInteger(mods) && mods >= 0 && mods !== metadata.mods) update({ mods }, true);
-                  else event.currentTarget.value = String(metadata.mods);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') event.currentTarget.blur();
-                }}
-              />
-            </label>
-          </div>
-        </MetaCard>
-        {modGroups.map(([group, groupLabel]) => (
-          <MetaCard key={group} title={groupLabel} collapsible={group === 'other'}>
-            <div className="mod-chip-grid">
-              {modOptions
-                .filter((option) => option[3] === group)
-                .map(([name, bit, fullName]) => {
-                  const on = (metadata.mods & bit) !== 0;
-                  return (
-                    <button
-                      key={bit}
-                      type="button"
-                      className={`mod-chip ${group}${on ? ' active' : ''}`}
-                      title={
-                        simulatedMods.includes(bit)
-                          ? `${fullName}: simulated`
-                          : `${fullName}: stored in the replay, gameplay effect not simulated`
-                      }
-                      disabled={name === 'SV2' && metadata.version >= 30000000}
-                      aria-pressed={on}
-                      onClick={() => changeMod(bit)}
-                    >
-                      <b>{name}</b>
-                      <small>{fullName}</small>
-                    </button>
-                  );
-                })}
-            </div>
-          </MetaCard>
-        ))}
-      </div>
-    );
-  }
-
   const wholeSimulation = simulation?.scope === 'whole-replay' ? simulation : null;
   const suggested = wholeSimulation?.score ?? null;
   const scoreMismatch = suggested !== null && suggested !== metadata.score;
-  const waitingForAutoScore = track.autoScore && suggested === null;
   const simulatedCounts = wholeSimulation
     ? [
         wholeSimulation.count300,
@@ -368,6 +208,13 @@ export function ReplayMetadataEditor({
           </span>
         }
       >
+        <div className="meta-field">
+          <span>
+            Client
+            <InfoTip text="The game this replay is judged, scored and exported for. Switching reruns the simulation by that game's rules." />
+          </span>
+          <ClientSwitch track={track} />
+        </div>
         <TextEdit label="Player" value={metadata.playerName} onCommit={(playerName) => update({ playerName })} />
         <div className="meta-field">
           <span>Score</span>
@@ -456,12 +303,10 @@ export function ReplayMetadataEditor({
             <span>Mode</span>
             <div className="field-value">osu!standard</div>
           </div>
-          <NumberEdit
-            label="Version"
-            value={metadata.version}
-            min={1}
-            onCommit={(version) => update({ version }, true)}
-          />
+          <div className="meta-field">
+            <span>Version</span>
+            <div className="field-value">{metadata.version}</div>
+          </div>
           <TextEdit
             label="UTC ticks"
             value={metadata.timestampTicks}
@@ -513,39 +358,6 @@ export function ReplayMetadataEditor({
             onCommit={(lazerScoreInfo) => update({ lazerScoreInfo })}
             multiline
           />
-        )}
-      </MetaCard>
-
-      <MetaCard
-        title="Export"
-        info={
-          waitingForAutoScore
-            ? 'Waiting for the whole-replay simulation. Enter a manual score if the map is unavailable.'
-            : undefined
-        }
-      >
-        <div className="meta-export-row">
-          <input
-            type="text"
-            placeholder={track.replay.filename}
-            value={exportName}
-            aria-label="Export filename"
-            onChange={(event) => setExportName(event.currentTarget.value)}
-          />
-          <button
-            className="metadata-export-button"
-            type="button"
-            disabled={waitingForAutoScore || exportState === 'Exporting…'}
-            title="Export .osr to Downloads"
-            onClick={() => void exportReplay()}
-          >
-            {exportState === 'Exporting…' ? <Spinner size={12} /> : <Download size={14} />} Export
-          </button>
-        </div>
-        {exportState && exportState !== 'Exporting…' && (
-          <p className="sample-note" role="status">
-            {exportState}
-          </p>
         )}
       </MetaCard>
     </div>

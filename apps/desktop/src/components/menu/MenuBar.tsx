@@ -19,6 +19,7 @@ export function MenuBar({
   setSettingsOpen,
   setChangelogOpen,
   onSaveProject,
+  onSaveProjectAs,
   onOpenProject,
   onOpenRecent,
   onExportClip,
@@ -30,6 +31,7 @@ export function MenuBar({
   setSettingsOpen: (value: boolean) => void;
   setChangelogOpen: (value: boolean) => void;
   onSaveProject: () => void;
+  onSaveProjectAs: () => void;
   onOpenProject: () => void;
   onOpenRecent: (entry: RecentFile) => void;
   onExportClip: () => void;
@@ -97,6 +99,10 @@ export function MenuBar({
             onAction={runAction}
             onSaveProject={() => {
               onSaveProject();
+              setMenuOpen(null);
+            }}
+            onSaveProjectAs={() => {
+              onSaveProjectAs();
               setMenuOpen(null);
             }}
             onOpenProject={() => {

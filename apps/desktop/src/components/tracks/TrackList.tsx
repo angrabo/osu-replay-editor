@@ -22,6 +22,7 @@ export function TrackList({ onImport }: { onImport: () => void }) {
   const setTrackName = useEditorStore((state) => state.setTrackName);
   const toggleVisibility = useEditorStore((state) => state.toggleTrackVisibility);
   const toggleLock = useEditorStore((state) => state.toggleTrackLock);
+  const removeTracks = useEditorStore((state) => state.removeTracks);
   const [menuId, setMenuId] = useState<string | null>(null);
   const [editingColor, setEditingColor] = useState<string | null>(null);
   const [colorDraft, setColorDraft] = useState('');
@@ -132,6 +133,15 @@ export function TrackList({ onImport }: { onImport: () => void }) {
                   }}
                 >
                   {track.locked ? 'Unlock' : 'Lock'} track
+                </button>
+                <button
+                  className="danger"
+                  onClick={() => {
+                    removeTracks([track.id]);
+                    setMenuId(null);
+                  }}
+                >
+                  Remove track
                 </button>
               </div>
             )}

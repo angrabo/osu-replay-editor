@@ -128,3 +128,10 @@ describe('project file save/load round trip', () => {
     assert.equal(projectFileName({}), 'osu-replay-project.oreproj');
   });
 });
+
+test('ignored suspicious stretches survive a save and load, and old files default to none', () => {
+  const project = serializeProject([], {} as never, null, [], {}, [], ['track-1:teleport:100:116']);
+  assert.deepEqual(parseProjectFile(JSON.stringify(project)).ignoredSuspicions, ['track-1:teleport:100:116']);
+  const old = { ...project, ignoredSuspicions: undefined };
+  assert.deepEqual(parseProjectFile(JSON.stringify(old)).ignoredSuspicions, []);
+});
