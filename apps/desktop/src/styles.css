@@ -6945,3 +6945,14 @@ textarea,
   color: #8fa3b8;
   font-size: 10px;
 }
+.playfield-marquee {
+  position: absolute;
+  z-index: 7;
+  border: 1px solid #7fb2ff;
+  border-radius: 2px;
+  background: #467fe726;
+  pointer-events: none;
+}
+.cursor-curve-node.brush-target {
+  pointer-events: none;
+}

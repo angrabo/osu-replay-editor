@@ -347,6 +347,8 @@ export type EditorState = {
   setClipboardMode: (mode: ClipboardMode) => void;
   pasteInputs: (inPlace?: boolean, atTimeMs?: number, replaceSelection?: boolean) => void;
   selectCursorFrame: (timeMs: number | null, additive?: boolean) => void;
+  // Selects several cursor frames at once (a drag selection); additive keeps the current ones.
+  selectCursorFrames: (times: readonly number[], additive?: boolean) => void;
   setCursorFramePosition: (trackId: string, timeMs: number, x: number, y: number) => void;
   insertCursorFrame: (trackId: string, timeMs: number, x: number, y: number) => void;
   deleteCursorFrame: (trackId: string, timeMs: number) => void;
@@ -1730,6 +1732,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ? base.filter((time) => time !== rounded)
         : [...base, rounded];
       return { selectedCursorFrameMs: rounded, selectedCursorFrameTimes };
+    }),
+  selectCursorFrames: (times, additive = false) =>
+    set((state) => {
+      const kept = additive
+        ? [...state.selectedCursorFrameTimes, state.selectedCursorFrameMs].filter(
+            (time): time is number => time !== null,
+          )
+        : [];
+      const selectedCursorFrameTimes = [...new Set([...kept, ...times.map(Math.round)])].sort((a, b) => a - b);
+      return {
+        selectedCursorFrameTimes,
+        selectedCursorFrameMs: selectedCursorFrameTimes.length ? selectedCursorFrameTimes[0] : null,
+      };
     }),
   setCursorFramePosition: (trackId, timeMs, x, y) =>
     set((state) => {

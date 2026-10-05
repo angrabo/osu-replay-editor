@@ -136,6 +136,12 @@ export function BeatmapCanvas({
   const [hostSize, setHostSize] = useState({ width: 0, height: 0 });
   const [viewTransform, setViewTransform] = useState<PlayfieldTransform | null>(null);
   const [brushHover, setBrushHover] = useState<{ x: number; y: number } | null>(null);
+  // Drag selection of cursor nodes (Select and Move tools): where the drag began, and the box
+  // drawn while it is wider than a click.
+  const marqueeRef = useRef<{ pointerId: number; x: number; y: number; additive: boolean; active: boolean } | null>(
+    null,
+  );
+  const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [strokeDraft, setStrokeDraft] = useState<CursorStrokePoint[]>([]);
   const [nodeMenu, setNodeMenu] = useState<{ x: number; y: number; timeMs: number } | null>(null);
   const [ready, setReady] = useState(false);
@@ -216,6 +222,7 @@ export function BeatmapCanvas({
   const selectedCursorRange = useEditorStore((state) => state.selectedCursorRange);
   const selectedTimeRange = useEditorStore((state) => state.selectedTimeRange);
   const selectCursorFrame = useEditorStore((state) => state.selectCursorFrame);
+  const selectCursorFrames = useEditorStore((state) => state.selectCursorFrames);
   const selectBeatmapObject = useEditorStore((state) => state.selectBeatmapObject);
   const selectedBeatmapObjectIndex = useEditorStore((state) => state.selectedBeatmapObjectIndex);
   const setCursorFramePosition = useEditorStore((state) => state.setCursorFramePosition);
@@ -709,6 +716,28 @@ export function BeatmapCanvas({
     if (ready) viewerRef.current?.setGhosts(ghosts);
   }, [ghosts, ready]);
 
+  // Ends a drag selection. A committed box selects every shown node inside it; a plain click
+  // (no box) has already been handled on pointer down.
+  const finishMarquee = (target: HTMLDivElement, pointerId: number, clientX?: number, clientY?: number) => {
+    const drag = marqueeRef.current;
+    if (!drag || drag.pointerId !== pointerId) return;
+    marqueeRef.current = null;
+    setMarquee(null);
+    if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
+    if (!drag.active || clientX === undefined || clientY === undefined) return;
+    const from = pointerPoint(drag.x, drag.y);
+    const to = pointerPoint(clientX, clientY);
+    if (!from || !to) return;
+    const [left, right] = from.x < to.x ? [from.x, to.x] : [to.x, from.x];
+    const [top, bottom] = from.y < to.y ? [from.y, to.y] : [to.y, from.y];
+    selectCursorFrames(
+      curveFrames
+        .filter((frame) => frame.x >= left && frame.x <= right && frame.y >= top && frame.y <= bottom)
+        .map((frame) => frame.timeMs),
+      drag.additive,
+    );
+  };
+
   const finishPan = (target?: HTMLDivElement) => {
     const drag = panDragRef.current;
     panDragRef.current = null;
@@ -731,7 +760,8 @@ export function BeatmapCanvas({
     .toString(16)
     .padStart(6, '0')}`;
   const curveFrames = useMemo(() => {
-    if (!interactive || (tool !== 'curve' && tool !== 'select') || !displayedReplay) return [];
+    // The brush shows them too, so the selection it is limited to stays visible.
+    if (!interactive || (tool !== 'curve' && tool !== 'select' && tool !== 'brush') || !displayedReplay) return [];
     const frames = displayedReplay.frames;
     const shown: (ReplayFrame & { index: number })[] = [];
     // Only the frames around the playhead: found by binary search instead of scanning the replay.
@@ -831,9 +861,21 @@ export function BeatmapCanvas({
           const point =
             tool === 'select' && !event.ctrlKey && !event.metaKey ? pointerPoint(event.clientX, event.clientY) : null;
           const objectIndex = point ? hitObjectAt(point) : null;
-          selectBeatmapObject(objectIndex);
-          if (objectIndex !== null) return;
-          if (!(event.ctrlKey || event.metaKey || event.shiftKey)) selectCursorFrame(null);
+          const additive = event.ctrlKey || event.metaKey || event.shiftKey;
+          // Selecting an object (or nothing) resets the node selection, so an additive click or
+          // drag on empty space leaves everything as it is.
+          if (objectIndex !== null || !additive) selectBeatmapObject(objectIndex);
+          // Dragging from here draws a selection box over the cursor nodes.
+          if (previewTrack) {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            marqueeRef.current = {
+              pointerId: event.pointerId,
+              x: event.clientX,
+              y: event.clientY,
+              additive,
+              active: false,
+            };
+          }
           return;
         }
         if (tool === 'zoom') {
@@ -905,6 +947,24 @@ export function BeatmapCanvas({
               brushDragRef.current = { ...brush, x: point.x, y: point.y };
             });
         }
+        const selection = marqueeRef.current;
+        if (selection?.pointerId === event.pointerId) {
+          // A few pixels of slack tell a drag from a click.
+          if (!selection.active && Math.hypot(event.clientX - selection.x, event.clientY - selection.y) < 4) return;
+          if (!selection.active) {
+            selection.active = true;
+            // The box is about nodes: unless adding, drop the object the click picked (and the nodes).
+            if (!selection.additive) selectBeatmapObject(null);
+          }
+          const box = event.currentTarget.getBoundingClientRect();
+          setMarquee({
+            left: Math.min(selection.x, event.clientX) - box.left,
+            top: Math.min(selection.y, event.clientY) - box.top,
+            width: Math.abs(event.clientX - selection.x),
+            height: Math.abs(event.clientY - selection.y),
+          });
+          return;
+        }
         const drag = panDragRef.current;
         const nodeDrag = nodeDragRef.current;
         const stroke = strokeRef.current;
@@ -955,7 +1015,9 @@ export function BeatmapCanvas({
         setPan({ ...panRef.current });
       }}
       onPointerUp={(event) => {
-        if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, true, event.clientX, event.clientY);
+        if (marqueeRef.current) finishMarquee(event.currentTarget, event.pointerId, event.clientX, event.clientY);
+        else if (strokeRef.current)
+          finishStroke(event.currentTarget, event.pointerId, true, event.clientX, event.clientY);
         else if (nodeDragRef.current) finishNodeDrag(event.currentTarget, event.pointerId);
         else if (brushDragRef.current?.pointerId === event.pointerId) {
           flushEdit();
@@ -966,7 +1028,8 @@ export function BeatmapCanvas({
         } else finishPan(event.currentTarget);
       }}
       onPointerCancel={(event) => {
-        if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, false);
+        if (marqueeRef.current) finishMarquee(event.currentTarget, event.pointerId);
+        else if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, false);
         else if (nodeDragRef.current) finishNodeDrag(event.currentTarget, event.pointerId);
         else if (brushDragRef.current?.pointerId === event.pointerId) {
           flushEdit();
@@ -975,7 +1038,8 @@ export function BeatmapCanvas({
         } else finishPan(event.currentTarget);
       }}
       onLostPointerCapture={(event) => {
-        if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, false);
+        if (marqueeRef.current) finishMarquee(event.currentTarget, event.pointerId);
+        else if (strokeRef.current) finishStroke(event.currentTarget, event.pointerId, false);
         else if (nodeDragRef.current) finishNodeDrag(event.currentTarget, event.pointerId);
         else if (brushDragRef.current?.pointerId === event.pointerId) {
           flushEdit();
@@ -1046,11 +1110,13 @@ export function BeatmapCanvas({
         previewTrack &&
         curveFrames.map((frame) => {
           const selected = frame.timeMs === selectedCursorFrameMs || selectedCursorFrameTimes.includes(frame.timeMs);
+          // With the brush only the selected nodes are drawn, as markers the stroke passes through.
+          if (tool === 'brush' && !selected) return null;
           return (
             <button
               type="button"
               key={frame.index}
-              className={`cursor-curve-node ${frame.timeMs <= playhead ? 'past' : 'future'}${selected ? ' selected' : ''}${tool === 'select' ? ' select-only' : ''}`}
+              className={`cursor-curve-node ${frame.timeMs <= playhead ? 'past' : 'future'}${selected ? ' selected' : ''}${tool === 'select' ? ' select-only' : ''}${tool === 'brush' ? ' select-only brush-target' : ''}`}
               aria-label={`Cursor line node at ${frame.timeMs} milliseconds`}
               title={`${frame.timeMs} ms · X ${Math.round(frame.x)} · Y ${Math.round(frame.y)}`}
               style={{ left: originX + frame.x * scale, top: originY + frame.y * scale }}
@@ -1095,6 +1161,7 @@ export function BeatmapCanvas({
             />
           );
         })}
+      {marquee && <div className="playfield-marquee" style={marquee} />}
       {interactive && tool === 'brush' && brushHover && (
         <div
           className="playfield-brush-cursor"
