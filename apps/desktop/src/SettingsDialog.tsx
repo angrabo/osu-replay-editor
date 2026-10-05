@@ -24,6 +24,7 @@ import { InstallSettings } from './components/settings/InstallSettings';
 import { InfoTip } from './components/InfoTip';
 import { clearRecentFiles, readRecentFiles } from './recentFiles';
 import { AUTOSAVE_INTERVALS, useAutosaveStore } from './stores/autosave';
+import { MAX_EDIT_SIMULATION_DELAY_MS, useSimulationPrefsStore } from './stores/simulationPrefs';
 
 type AccountSettings = { rememberSession: boolean; storageDirectory: string };
 type CategoryId =
@@ -51,8 +52,12 @@ const categories: Category[] = [
     id: 'general',
     label: 'General',
     icon: <Settings2 size={17} />,
-    keywords: 'startup language updates restore project',
+    keywords: 'startup language updates restore project simulation delay',
     items: [
+      {
+        title: 'Simulate after editing',
+        description: 'How long the editor waits after your last edit before it simulates the replay again.',
+      },
       { title: 'Updates', description: 'Check GitHub for a newer signed build.' },
       { title: 'Changelog', description: 'What changed in this and past versions.' },
     ],
@@ -152,6 +157,8 @@ export function SettingsDialog({
   const [settings, setSettings] = useState<AccountSettings | null>(null);
   const [remember, setRemember] = useState(true);
   const [active, setActive] = useState<CategoryId>('general');
+  const editDelayMs = useSimulationPrefsStore((state) => state.editDelayMs);
+  const setEditDelayMs = useSimulationPrefsStore((state) => state.setEditDelayMs);
   const autosaveEnabled = useAutosaveStore((state) => state.enabled);
   const autosaveMinutes = useAutosaveStore((state) => state.minutes);
   const setAutosaveEnabled = useAutosaveStore((state) => state.setEnabled);
@@ -301,6 +308,30 @@ export function SettingsDialog({
                         >
                           Check for updates
                         </button>
+                      </SettingRow>
+                      <SettingRow
+                        title="Simulate after editing"
+                        info="How long the editor waits after your last edit before it simulates the replay again. 0 simulates straight away; a longer wait keeps editing smooth on long replays. The old result stays on screen, dimmed, until the new one is ready."
+                      >
+                        <input
+                          key={editDelayMs}
+                          className="setting-number"
+                          type="number"
+                          aria-label="Simulation delay after editing, in milliseconds"
+                          min={0}
+                          max={MAX_EDIT_SIMULATION_DELAY_MS}
+                          step={500}
+                          defaultValue={editDelayMs}
+                          onBlur={(event) => {
+                            const value = Number(event.currentTarget.value);
+                            if (event.currentTarget.value !== '' && Number.isFinite(value)) setEditDelayMs(value);
+                            else event.currentTarget.value = String(editDelayMs);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') event.currentTarget.blur();
+                          }}
+                        />
+                        <span className="setting-value">ms</span>
                       </SettingRow>
                       <SettingRow title="Changelog" info="What changed in this and past versions.">
                         <button onClick={onOpenChangelog}>View</button>

@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { sidecarRequest } from '../sidecar';
 import { useEditorStore, type SimulationResult } from '../stores/editor';
 import type { Resolution } from '../MapAcquisition';
-
-const EDIT_SIMULATION_DELAY_MS = 5000;
+import { useSimulationPrefsStore } from '../stores/simulationPrefs';
 
 export function useSimulationRunner(resolution: Resolution | null) {
   const selectedTimeRange = useEditorStore((state) => state.selectedTimeRange);
@@ -103,7 +102,8 @@ export function useSimulationRunner(resolution: Resolution | null) {
     )
       simulationDebounce.current = window.setTimeout(
         () => void runSimulation(needsJudgementPreview),
-        editPendingRef.current ? EDIT_SIMULATION_DELAY_MS : 350,
+        // The wait after an edit is the user's choice (Settings › General); read when the timer starts.
+        editPendingRef.current ? useSimulationPrefsStore.getState().editDelayMs : 350,
       );
     return () => {
       if (simulationDebounce.current !== null) window.clearTimeout(simulationDebounce.current);

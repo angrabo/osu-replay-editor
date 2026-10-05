@@ -5522,6 +5522,7 @@ button .spinner {
   color: #ff7a87;
 }
 .setting-volume select,
+.setting-row-control .setting-number,
 .setting-volume .setting-number {
   height: 26px;
   padding: 0 6px;
@@ -5531,6 +5532,7 @@ button .spinner {
   color: #e4ecf5;
   font-size: 12px;
 }
+.setting-row-control .setting-number,
 .setting-volume .setting-number {
   width: 76px;
 }
