@@ -21,6 +21,7 @@ import { Spinner } from './components/common/Loading';
 import { KeybindSettings } from './components/settings/KeybindSettings';
 import { SkinSettings } from './components/settings/SkinSettings';
 import { InstallSettings } from './components/settings/InstallSettings';
+import { PerformanceSettings } from './components/settings/PerformanceSettings';
 import { InfoTip } from './components/InfoTip';
 import { clearRecentFiles, readRecentFiles } from './recentFiles';
 import { AUTOSAVE_INTERVALS, useAutosaveStore } from './stores/autosave';
@@ -54,6 +55,10 @@ const categories: Category[] = [
     icon: <Settings2 size={17} />,
     keywords: 'startup language updates restore project simulation delay',
     items: [
+      {
+        title: 'Performance points (pp)',
+        description: 'An optional calculator built on osu! itself, downloaded on demand.',
+      },
       {
         title: 'Simulate after editing',
         description: 'How long the editor waits after your last edit before it simulates the replay again.',
@@ -333,6 +338,7 @@ export function SettingsDialog({
                         />
                         <span className="setting-value">ms</span>
                       </SettingRow>
+                      <PerformanceSettings />
                       <SettingRow title="Changelog" info="What changed in this and past versions.">
                         <button onClick={onOpenChangelog}>View</button>
                       </SettingRow>

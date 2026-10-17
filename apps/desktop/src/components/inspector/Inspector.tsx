@@ -2,6 +2,7 @@ import { Blocks, ChevronDown, ChevronRight, Download, FileText, ScanSearch } fro
 import { useState, type ReactNode } from 'react';
 import { ModsPanel } from './ModsPanel';
 import { ExportPanel } from './ExportPanel';
+import { PerformanceField } from './PerformanceField';
 import { Field } from '../common/Field';
 import { ReplayMetadataEditor } from '../../ReplayMetadataEditor';
 import { formatTime, logicalKeys, nearestReplayFrameTime, useEditorStore } from '../../stores/editor';
@@ -154,6 +155,7 @@ export function Inspector() {
                 <>
                   <div className="simulation-result-grid">
                     <Field label="Score" value={simulation.score.toLocaleString('en-US')} />
+                    <PerformanceField trackId={track.id} />
                     <Field label="Accuracy" value={`${formatAccuracy(simulation)}%`} positive />
                     <Field
                       label="300 / 100 / 50"

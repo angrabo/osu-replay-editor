@@ -6,6 +6,7 @@ import { useEditorStore, type SimulationResult, type Track } from '../../stores/
 import { InfoTip } from '../InfoTip';
 import { Spinner } from '../common/Loading';
 import { ClientSwitch, trackClient, trackMods } from './ClientSwitch';
+import { usePerformance } from '../../stores/performance';
 
 type Note = { tone: 'ok' | 'info' | 'warning' | 'blocked'; text: string };
 
@@ -22,6 +23,7 @@ export function ExportPanel({
     const run = track ? state.simulationByTrack[track.id] : undefined;
     return !!run && (!!run.stale || run.status === 'running');
   });
+  const performance = usePerformance(track?.id);
   const [name, setName] = useState('');
   const [status, setStatus] = useState<{ busy?: boolean; saved?: string; error?: string }>({});
   if (!track)
@@ -155,6 +157,14 @@ export function ExportPanel({
             {metadata.score.toLocaleString('en-US')}
             <small>{track.autoScore ? 'from simulation' : 'manual'}</small>
           </dd>
+          {performance?.result && (
+            <>
+              <dt>PP</dt>
+              <dd>
+                {Math.round(performance.result.pp)} pp<small>{performance.result.stars.toFixed(2)}★</small>
+              </dd>
+            </>
+          )}
           <dt>Format</dt>
           <dd>
             {client === 'lazer' ? 'osu!lazer' : 'osu!stable'}

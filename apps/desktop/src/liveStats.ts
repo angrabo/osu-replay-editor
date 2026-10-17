@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { formatTime, useEditorStore, type SimulationResult } from './stores/editor';
+import { usePerformance } from './stores/performance';
 
 /// Values a text widget can show, as of the playhead.
 export type LiveValues = Record<string, string>;
@@ -25,6 +26,8 @@ export const LIVE_VARIABLES: { name: string; description: string }[] = [
   { name: 'time', description: 'Playhead time' },
   { name: 'player', description: 'Player name' },
   { name: 'mods', description: 'Mods' },
+  { name: 'pp', description: 'Performance points of the play (needs the pp calculator)' },
+  { name: 'stars', description: 'Star rating with the mods (needs the pp calculator)' },
 ];
 
 type Step = {
@@ -123,6 +126,7 @@ export function useLiveValues(trackId: string | null | undefined): LiveValues {
   const playhead = useEditorStore((state) => state.playheadMs);
   const steps = useMemo(() => (result ? buildSteps(result) : []), [result]);
   const points = useMemo(() => (result ? buildPoints(result) : []), [result]);
+  const performance = usePerformance(trackId)?.result;
   return useMemo(() => {
     const step = lastAtOrBefore(steps, playhead);
     // Older results without a timeline fall back to per-object totals.
@@ -152,6 +156,9 @@ export function useLiveValues(trackId: string | null | undefined): LiveValues {
           .filter(([bit]) => !(bit === 64 && mods & 512) && !(bit === 32 && mods & 16384))
           .map(([, name]) => name)
           .join('') || 'NM',
+      // The whole play's pp: the calculator rates a finished play, not one in progress.
+      pp: performance ? `${Math.round(performance.pp)}` : '—',
+      stars: performance ? `${performance.stars.toFixed(2)}★` : '—',
     };
-  }, [steps, points, playhead, result, track]);
+  }, [steps, points, playhead, result, track, performance]);
 }

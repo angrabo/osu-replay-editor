@@ -101,14 +101,14 @@ describe('editReplayInput and replayInputIntervals', () => {
     ]);
   });
 
-  test('moving an input retimes its key-down/up frames and clears the old ones', () => {
+  test('moving an input retimes its key-down/up frames and removes the ones it no longer needs', () => {
     const moved = editReplayInput(inserted, { trackId: 'edit', key: 'M1', startTime: 10, endTime: 27 }, { trackId: 'edit', key: 'M1', startTime: 11, endTime: 28 });
     assert.deepEqual(moved.keyEvents, [{ timeMs: 11, key: 'M1', down: true }, { timeMs: 28, key: 'M1', down: false }]);
-    assert.ok(moved.frames.some((item) => item.timeMs === 10 && logicalKeys(item.keys) === 0));
-    assert.ok(moved.frames.some((item) => item.timeMs === 27 && logicalKeys(item.keys) === 1));
+    // The frames added for the old edges carried nothing else, so they are gone.
+    assert.deepEqual(moved.frames.map((item) => item.timeMs), [0, 11, 17, 28, 34]);
 
     const removed = editReplayInput(moved, { trackId: 'edit', key: 'M1', startTime: 11, endTime: 28 }, null);
-    assert.equal(removed.frames.length >= moved.frames.length, true);
+    assert.deepEqual(removed.frames.map((item) => item.timeMs), editable.frames.map((item) => item.timeMs));
     assert.equal(removed.frames.every((item) => logicalKeys(item.keys) === 0), true);
     assert.deepEqual(Array.from(removed.sourceBytes), [9, 8, 7]);
   });
@@ -636,5 +636,62 @@ describe('removeTracks', () => {
     useEditorStore.getState().removeTracks(['archived-1']);
     assert.equal(useEditorStore.getState().archivedTracks.length, 0);
     assert.equal(useEditorStore.getState().tracks, active);
+  });
+});
+
+describe('editing key presses leaves the cursor path alone', () => {
+  // A curved path sampled every 100 ms, with no keys held.
+  const path = Array.from({ length: 11 }, (_, index) => ({
+    timeMs: index * 100,
+    deltaMs: 100,
+    x: 100 + index * 20,
+    y: 200 + (index % 2) * 30,
+    keys: 0,
+  }));
+  const replay = { frames: path, keyEvents: [] } as never;
+  const cursorAt = (frames: { timeMs: number; x: number; y: number }[], time: number) => {
+    const after = frames.findIndex((frame) => frame.timeMs >= time);
+    const a = frames[after - 1] ?? frames[after];
+    const b = frames[after];
+    const amount = b.timeMs === a.timeMs ? 0 : (time - a.timeMs) / (b.timeMs - a.timeMs);
+    return [Math.round((a.x + (b.x - a.x) * amount) * 100) / 100, Math.round((a.y + (b.y - a.y) * amount) * 100) / 100];
+  };
+  const press = (startTime: number, endTime: number) => ({ trackId: 't', key: 'K1' as const, startTime, endTime });
+
+  test('a press between frames gets frames on the path, which go away when the press moves on', () => {
+    const added = editReplayInput(replay, null, press(150, 250));
+    assert.deepEqual(
+      added.frames.map((frame) => frame.timeMs),
+      [0, 100, 150, 200, 250, 300, 400, 500, 600, 700, 800, 900, 1000],
+    );
+    for (const time of [120, 150, 175, 250, 330]) assert.deepEqual(cursorAt(added.frames, time), cursorAt(path, time));
+
+    // Moving the press elsewhere, twice, leaves no frames behind at the old boundaries.
+    const moved = editReplayInput(added, press(150, 250), press(350, 450));
+    const movedAgain = editReplayInput(moved, press(350, 450), press(620, 680));
+    assert.deepEqual(
+      movedAgain.frames.map((frame) => frame.timeMs),
+      [0, 100, 200, 300, 400, 500, 600, 620, 680, 700, 800, 900, 1000],
+    );
+    for (const time of [150, 250, 350, 450, 620, 650, 680]) assert.deepEqual(cursorAt(movedAgain.frames, time), cursorAt(path, time));
+    assert.deepEqual(
+      replayInputIntervals('t', movedAgain).map((item) => [item.startTime, item.endTime]),
+      [[620, 680]],
+    );
+
+    // Removing the press restores the original frames.
+    assert.deepEqual(editReplayInput(movedAgain, press(620, 680), null).frames.map((frame) => frame.timeMs), path.map((frame) => frame.timeMs));
+  });
+
+  test('recorded frames and frames moved by hand are never removed', () => {
+    const added = editReplayInput(replay, null, press(150, 250));
+    // The frame inserted at 150 ms was dragged off the path afterwards: it is cursor data now.
+    const dragged = { ...added, frames: added.frames.map((frame) => (frame.timeMs === 150 ? { ...frame, y: frame.y + 40 } : frame)) };
+    const moved = editReplayInput(dragged, press(150, 250), press(350, 450));
+    assert.ok(moved.frames.some((frame) => frame.timeMs === 150));
+    assert.ok(!moved.frames.some((frame) => frame.timeMs === 250));
+    // Presses on recorded frames keep every recorded frame.
+    const onFrames = editReplayInput(replay, null, press(200, 400));
+    assert.deepEqual(editReplayInput(onFrames, press(200, 400), null).frames.length, path.length);
   });
 });

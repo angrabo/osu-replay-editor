@@ -142,6 +142,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PORTABLE_ZIP: ${{ steps.portable.outputs.zip }}
 
+      # The optional pp calculator: osu!'s own difficulty and performance code in a separate
+      # program, downloaded by the app only when the user turns pp on. The app checks the file
+      # against the published SHA-256 before using it.
+      - name: Build and attach the pp calculator
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'pp-calculator'
+          dotnet publish engine/ReplayEditor.PerformanceCalculator/ReplayEditor.PerformanceCalculator.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o $out
+          if ($LASTEXITCODE -ne 0) { throw 'pp calculator publish failed' }
+          $asset = Join-Path $env:RUNNER_TEMP 'pp-calculator-win-x64.exe'
+          Copy-Item -LiteralPath (Join-Path $out 'pp-calculator.exe') -Destination $asset
+          & $asset --version
+          if ($LASTEXITCODE -ne 0) { throw 'pp calculator does not start' }
+          $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath "$asset.sha256" -Value "$hash  pp-calculator-win-x64.exe" -Encoding ascii -NoNewline
+          gh release upload $env:RELEASE_TAG $asset "$asset.sha256" --clobber --repo ${{ github.repository }}
+
       - name: Build and upload latest.json
         shell: pwsh
         env:

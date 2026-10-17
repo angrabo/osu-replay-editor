@@ -50,7 +50,10 @@ internal sealed class LocalBeatmapResolver(BeatmapCache cache)
             var path = await cache.CacheAsync(archive, null, ct);
             return MapResolutions.FromPackage(hash, package with { ArchivePath = path }, null);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or OverflowException or RealmException)
+        // DllNotFoundException / TypeInitializationException: the Realm native library is missing,
+        // which reads as a failed search rather than an engine crash.
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or OverflowException
+                                       or RealmException or DllNotFoundException or TypeInitializationException)
         {
             return MapResolutions.Empty("not-found", hash, $"Could not read osu!{client}: {ex.Message}");
         }

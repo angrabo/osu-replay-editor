@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>pp-calculator</AssemblyName>
+    <RootNamespace>ReplayEditor.PerformanceCalculator</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Windows only: the osu! packages also carry mobile native libraries we never ship. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="ppy.osu.Game" Version="2026.916.0" />
+    <PackageReference Include="ppy.osu.Game.Rulesets.Osu" Version="2026.916.0" />
+    <!-- The game's skins, sounds and textures (over 100 MB) are never touched by the calculators. -->
+    <PackageReference Include="ppy.osu.Game.Resources" Version="2026.1008.0" ExcludeAssets="all" />
+  </ItemGroup>
+</Project>

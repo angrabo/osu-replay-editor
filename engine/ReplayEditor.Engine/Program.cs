@@ -21,6 +21,7 @@ builder.Services.AddControllers();
 builder.Services.AddSingleton(_ => new OsuService());
 builder.Services.AddScoped<IReplayCodecService, ReplayCodecService>();
 builder.Services.AddScoped<ISimulationService, SimulationService>();
+builder.Services.AddSingleton<PerformanceCalculatorService>();
 
 builder.Services.AddCors(options => options.AddPolicy("desktop", policy => policy
     .WithOrigins("http://localhost:1420", "http://127.0.0.1:1420", "http://tauri.localhost", "tauri://localhost")

@@ -8,7 +8,7 @@ if ($targetTriple -ne 'x86_64-pc-windows-msvc') {
 }
 $outputPath = Join-Path $projectRoot ".build/sidecar/$Configuration"
 $projectPath = Join-Path $projectRoot 'engine/ReplayEditor.Engine/ReplayEditor.Engine.csproj'
-dotnet publish $projectPath -c $Configuration -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -p:UseSharedCompilation=false -m:1 -o $outputPath
+dotnet publish $projectPath -c $Configuration -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:UseSharedCompilation=false -m:1 -o $outputPath
 if ($LASTEXITCODE -ne 0) { throw 'Sidecar publish failed.' }
 $source = Join-Path $outputPath 'ReplayEditor.Engine.exe'
 $binaryDirectory = Join-Path $projectRoot 'apps/desktop/src-tauri/binaries'

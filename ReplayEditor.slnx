@@ -5,6 +5,7 @@
     <Project Path="engine/ReplayEditor.Core/ReplayEditor.Core.csproj" />
     <Project Path="engine/ReplayEditor.Engine/ReplayEditor.Engine.csproj" />
     <Project Path="engine/ReplayEditor.Osu/ReplayEditor.Osu.csproj" />
+    <Project Path="engine/ReplayEditor.PerformanceCalculator/ReplayEditor.PerformanceCalculator.csproj" />
     <Project Path="engine/ReplayEditor.Simulation/ReplayEditor.Simulation.csproj" />
   </Folder>
   <Folder Name="/Tests/">

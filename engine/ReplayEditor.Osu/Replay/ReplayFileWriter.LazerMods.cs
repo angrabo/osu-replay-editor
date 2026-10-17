@@ -59,6 +59,34 @@ public static partial class ReplayFileWriter
         }
     }
 
+    /// <summary>
+    /// The mods a lazer replay plays with: the bitmask's plus the lazer-only acronyms, each with the
+    /// settings its score info holds for it (custom rates, Difficulty Adjust values…), if any.
+    /// </summary>
+    public static IReadOnlyList<(string Acronym, JsonObject? Settings)> LazerModsWithSettings(byte[]? scoreInfo,
+        int mods, IEnumerable<string>? lazerOnly)
+    {
+        var settings = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
+        if (ReplayFileReader.TryDecodeLazerScoreInfo(scoreInfo) is { } json)
+            try
+            {
+                if (JsonNode.Parse(json)?["mods"] is JsonArray entries)
+                    foreach (var entry in entries.OfType<JsonObject>())
+                        if (entry["acronym"] is JsonValue acronym && acronym.TryGetValue<string>(out var name) &&
+                            entry["settings"] is JsonObject values)
+                            settings[name] = (JsonObject)values.DeepClone();
+            }
+            catch (JsonException)
+            {
+            }
+
+        return BitmaskAcronyms(mods)
+            .Concat((lazerOnly ?? []).Select(acronym => acronym.ToUpperInvariant()))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(acronym => (acronym, settings.GetValueOrDefault(acronym)))
+            .ToArray();
+    }
+
     private static byte[] UpdateLazerMods(ReplayMetadata metadata)
     {
         var original = metadata.LazerScoreInfo;

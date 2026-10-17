@@ -26,6 +26,7 @@ import { useAutoUpdater } from './hooks/useAutoUpdater';
 import { formatTime, useEditorStore } from './stores/editor';
 import { parseProjectFile, PROJECT_FILE_EXTENSION } from './project';
 import { useProjectFile } from './hooks/useProjectFile';
+import { startPerformanceRunner, usePerformanceStore } from './stores/performance';
 import { ExportClipDialog } from './export/ExportClipDialog';
 import { forgetRecentFile, readUserFile, recordRecentFile, type RecentFile } from './recentFiles';
 
@@ -136,6 +137,14 @@ export default function App() {
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [playing, resolution]);
+
+  // pp for every finished simulation, when the optional calculator is installed.
+  const resolutionRef = useRef(resolution);
+  resolutionRef.current = resolution;
+  useEffect(() => startPerformanceRunner(() => resolutionRef.current), []);
+  useEffect(() => {
+    if (sidecar === 'ready') void usePerformanceStore.getState().refresh();
+  }, [sidecar]);
 
   // The last replay of the open map was removed: the map leaves the editor with it.
   useEffect(

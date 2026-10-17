@@ -18,7 +18,16 @@ export type Track = {
   autoScore: boolean;
   inputCuts: InputCut[];
 };
-export type ReplayFrame = { timeMs: number; deltaMs: number; x: number; y: number; keys: number };
+export type ReplayFrame = {
+  timeMs: number;
+  deltaMs: number;
+  x: number;
+  y: number;
+  keys: number;
+  // Inserted only to carry a key change made in the editor, on the cursor path between its
+  // neighbours. It is removed again once it carries no key change (see editReplayInputs).
+  synthetic?: boolean;
+};
 export type InputKey = 'M1' | 'M2' | 'K1' | 'K2';
 export type ReplayKeyEvent = { timeMs: number; key: InputKey; down: boolean };
 export type InputSelection = { trackId: string; key: InputKey; startTime: number; endTime: number };
@@ -663,7 +672,7 @@ function framePositionAt(frames: readonly ReplayFrame[], timeMs: number): { x: n
   };
 }
 
-function ensureFrame(frames: ReplayFrame[], timeMs: number): void {
+function ensureFrame(frames: ReplayFrame[], timeMs: number, synthetic = false): void {
   let low = 0;
   let high = frames.length;
   while (low < high) {
@@ -673,7 +682,25 @@ function ensureFrame(frames: ReplayFrame[], timeMs: number): void {
   }
   if (frames[low]?.timeMs === timeMs) return;
   const point = framePositionAt(frames, timeMs);
-  frames.splice(low, 0, { timeMs, deltaMs: 0, x: point.x, y: point.y, keys: point.keys });
+  frames.splice(low, 0, {
+    timeMs,
+    deltaMs: 0,
+    x: point.x,
+    y: point.y,
+    keys: point.keys,
+    ...(synthetic ? { synthetic } : {}),
+  });
+}
+
+// A frame lies on the straight line between its neighbours at its own time, so removing it leaves
+// the cursor path exactly as it was.
+function onPathBetween(before: ReplayFrame, frame: ReplayFrame, after: ReplayFrame): boolean {
+  if (after.timeMs <= before.timeMs) return false;
+  const amount = (frame.timeMs - before.timeMs) / (after.timeMs - before.timeMs);
+  return (
+    Math.abs(before.x + (after.x - before.x) * amount - frame.x) < 0.05 &&
+    Math.abs(before.y + (after.y - before.y) * amount - frame.y) < 0.05
+  );
 }
 
 function rebuildKeyEvents(frames: readonly ReplayFrame[]): ReplayKeyEvent[] {
@@ -721,6 +748,9 @@ export function replayInputSegments(track: Pick<Track, 'id' | 'replay' | 'inputC
   });
 }
 
+/// Changes key presses without touching the cursor path: a press boundary that falls between
+/// frames gets a frame of its own, placed on the path, and such frames are removed again once a
+/// later edit leaves them without a key change (and they were not moved since).
 export function editReplayInputs(
   replay: ImportedReplay,
   edits: readonly { original: InputSelection | null; next: InputSelection | null }[],
@@ -729,8 +759,8 @@ export function editReplayInputs(
   const apply = (input: InputSelection, down: boolean) => {
     const startTime = Math.round(input.startTime);
     const endTime = Math.max(startTime + 1, Math.round(input.endTime));
-    ensureFrame(frames, startTime);
-    ensureFrame(frames, endTime);
+    ensureFrame(frames, startTime, true);
+    ensureFrame(frames, endTime, true);
     const bit = 1 << inputKeys.indexOf(input.key);
     const conflictingBit = bit === 1 ? 4 : bit === 4 ? 1 : bit === 2 ? 8 : 2;
     for (const frame of frames)
@@ -742,6 +772,15 @@ export function editReplayInputs(
   };
   for (const edit of edits) if (edit.original) apply(edit.original, false);
   for (const edit of edits) if (edit.next) apply(edit.next, true);
+  for (let index = frames.length - 2; index > 0; index--) {
+    const frame = frames[index];
+    if (
+      frame.synthetic &&
+      logicalKeys(frame.keys) === logicalKeys(frames[index - 1].keys) &&
+      onPathBetween(frames[index - 1], frame, frames[index + 1])
+    )
+      frames.splice(index, 1);
+  }
   frames.forEach((frame, index) => {
     frame.deltaMs = index ? frame.timeMs - frames[index - 1].timeMs : frame.timeMs;
   });
