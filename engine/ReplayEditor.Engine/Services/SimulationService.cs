@@ -13,6 +13,11 @@ public sealed class SimulationService(OsuService osu) : ISimulationService
     private const int MaxFrames = 1_000_000;
     private const string SelectedAreaScope = "selected-area";
     private const string WholeReplayScope = "whole-replay";
+    // Only the objects around an edit, for a quick check (see SimulationEngine.SimulateWindow).
+    private const string WindowScope = "window";
+
+    // Selected-area and window results cover part of the replay: no recorded-score reconciliation.
+    private static bool IsPartial(SimulationRequest request) => request.Scope is SelectedAreaScope or WindowScope;
 
     public SimulationResult Simulate(SimulationRequest request, CancellationToken ct)
     {
@@ -47,9 +52,9 @@ public sealed class SimulationService(OsuService osu) : ISimulationService
 
     private static void ValidateScope(SimulationRequest request)
     {
-        if (request.Scope is not null and not WholeReplayScope and not SelectedAreaScope)
+        if (request.Scope is not null and not WholeReplayScope and not SelectedAreaScope and not WindowScope)
             throw new RequestValidationException("Unknown simulation scope.");
-        if (request.Scope == SelectedAreaScope && (request.StartMs is null || request.EndMs is null))
+        if (IsPartial(request) && (request.StartMs is null || request.EndMs is null))
             throw new RequestValidationException("Selected area requires start and end times.");
     }
 
@@ -64,7 +69,16 @@ public sealed class SimulationService(OsuService osu) : ISimulationService
         string beatmapText,
         double scoreMultiplier,
         CancellationToken ct) =>
-        request.Scope == SelectedAreaScope
+        request.Scope == WindowScope
+            ? SimulationEngine.SimulateWindow(beatmapText,
+                request.Frames,
+                request.Mods,
+                request.Version,
+                request.StartMs!.Value,
+                request.EndMs!.Value,
+                ct,
+                scoreMultiplier)
+            : request.Scope == SelectedAreaScope
             ? SimulationEngine.SimulateRange(beatmapText,
                 request.Frames,
                 request.Mods,
@@ -84,7 +98,7 @@ public sealed class SimulationService(OsuService osu) : ISimulationService
     private static SimulationResult RetryLazerBoundaryRounding(SimulationResult result, SimulationRequest request,
         string beatmapText, double scoreMultiplier, CancellationToken ct)
     {
-        if (request.Scope == SelectedAreaScope || request.Version < 30_000_000 ||
+        if (IsPartial(request) || request.Version < 30_000_000 ||
             !request.SourceUnedited || ScoreCalibration.MatchesRecordedAggregates(result, request))
             return result;
 
@@ -102,7 +116,7 @@ public sealed class SimulationService(OsuService osu) : ISimulationService
 
     private static SimulationResult ReconcileIfWholeReplay(SimulationResult result, SimulationRequest request)
     {
-        if (request.Scope == SelectedAreaScope)
+        if (IsPartial(request))
             return result;
 
         return request.Version >= 30_000_000
@@ -118,7 +132,7 @@ public sealed class SimulationService(OsuService osu) : ISimulationService
 
     private static SimulationResult MarkVerifiedIfMatchesRecording(SimulationResult result, SimulationRequest request)
     {
-        if (request.Scope == SelectedAreaScope || result.Status == "source-calibrated" ||
+        if (IsPartial(request) || result.Status == "source-calibrated" ||
             !ScoreCalibration.MatchesRecordedResult(result, request))
             return result;
 

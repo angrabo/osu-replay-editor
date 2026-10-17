@@ -6,6 +6,7 @@ export function EditMenu({
   onUndo,
   onRedo,
   onInvertAxis,
+  onFixTiming,
 }: {
   scopeLabel: string;
   canUndo: boolean;
@@ -13,6 +14,7 @@ export function EditMenu({
   onUndo: () => void;
   onRedo: () => void;
   onInvertAxis: (axis: 'x' | 'y') => void;
+  onFixTiming: () => void;
 }) {
   return (
     <div className="app-menu" role="menu">
@@ -29,6 +31,10 @@ export function EditMenu({
       </button>
       <button role="menuitem" onClick={() => onInvertAxis('y')}>
         Invert Y axis (HR)
+      </button>
+      <div className="menu-separator" />
+      <button role="menuitem" onClick={onFixTiming}>
+        Fix timing (experimental)…
       </button>
     </div>
   );

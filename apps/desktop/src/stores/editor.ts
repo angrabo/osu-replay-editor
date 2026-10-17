@@ -16,6 +16,9 @@ export type Track = {
   originalReplay: ImportedReplay;
   exportMetadata: ImportedReplay['metadata'];
   autoScore: boolean;
+  // Score, combo or hit counts were typed by hand. While false, they start following the
+  // simulation once the replay's inputs are edited. Missing (older projects) = left as they are.
+  scoreEdited?: boolean;
   inputCuts: InputCut[];
 };
 export type ReplayFrame = {
@@ -118,9 +121,12 @@ export type SimulationJudgement = {
   key: InputKey | null;
   comboAfter: number;
   scoreAfter: number;
+  // Where the object was judged (stacking and Hard Rock applied); absent in older results.
+  objectX?: number;
+  objectY?: number;
 };
 export type SimulationResult = {
-  scope: 'whole-replay' | 'selected-area';
+  scope: 'whole-replay' | 'selected-area' | 'window';
   model: string;
   status: string;
   client: 'stable' | 'lazer';
@@ -150,7 +156,14 @@ export type SimulationResult = {
   perfect?: boolean | null;
   // Score and combo after every scoring moment (objects, slider ticks/repeats/tails), by time.
   timeline?: { time: number; score: number; combo: number }[] | null;
+  // The hit windows the replay was judged with (OD and rate applied), in replay milliseconds.
+  windows?: { great: number; ok: number; meh: number } | null;
 };
+/// Whether the track's score and hit counts are taken from the simulation: when set to Auto, or for
+/// an imported replay whose inputs were edited and whose numbers were not typed by hand.
+export const followsSimulation = (track: Pick<Track, 'autoScore' | 'scoreEdited' | 'replay' | 'originalReplay'>) =>
+  track.autoScore || (track.scoreEdited === false && track.replay !== track.originalReplay);
+
 export function simulationMetadataPatch(
   result: SimulationResult,
   metadata: ImportedReplay['metadata'],
@@ -175,6 +188,9 @@ export type SimulationRunState = {
   error: string;
   // The result is from before the replay's latest edit: still shown (dimmed) until a new run lands.
   stale?: boolean;
+  // Only the objects around the latest edits were simulated again (Settings › General); the score
+  // and combo are from the last whole-replay run until one is started.
+  partial?: boolean;
 };
 type TrackSnapshot = Track[];
 export type MapInfo = { title: string | null; artist: string | null; setId: number | null; version: string | null };
@@ -330,7 +346,7 @@ export type EditorState = {
   setEditingMarker: (id: string | null) => void;
   setHitWindows: (windows: HitWindows | null) => void;
   setSimulationRunning: (trackId: string) => void;
-  setSimulationResult: (trackId: string, result: SimulationResult) => void;
+  setSimulationResult: (trackId: string, result: SimulationResult, partial?: boolean) => void;
   setSimulationError: (trackId: string, error: string) => void;
   setWindowStart: (ms: number) => void;
   requestTimelineFocus: () => void;
@@ -1077,6 +1093,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         originalReplay: replay,
         exportMetadata: { ...replay.metadata, hitCounts: [...(replay.metadata.hitCounts ?? [0, 0, 0, 0, 0, 0])] },
         autoScore: false,
+        scoreEdited: false,
         inputCuts: [],
       };
       const lastFrame = replay.frames.at(-1)?.timeMs ?? 0;
@@ -1246,16 +1263,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       if (!current || current.locked) return {};
       const next = { ...current.exportMetadata, ...patch };
       const modsChanged = next.mods !== current.exportMetadata.mods || next.version !== current.exportMetadata.version;
-      const tracks = state.tracks.map((track) =>
-        track.id === id
-          ? {
-              ...track,
-              edited: true,
-              exportMetadata: next,
-              autoScore: autoScore ?? (patch.score !== undefined ? false : track.autoScore),
-            }
-          : track,
-      );
+      const tracks = state.tracks.map((track) => {
+        if (track.id !== id) return track;
+        const auto = autoScore ?? (patch.score !== undefined ? false : track.autoScore);
+        return {
+          ...track,
+          edited: true,
+          exportMetadata: next,
+          autoScore: auto,
+          // Hand-typed numbers stay; syncing from the simulation hands them back to it.
+          scoreEdited:
+            autoScore === true ? false : autoScore === false || patch.score !== undefined ? true : track.scoreEdited,
+        };
+      });
       const simulationByTrack = { ...state.simulationByTrack };
       if (modsChanged) delete simulationByTrack[id];
       else if (simulationByTrack[id]?.result?.status === 'verified')
@@ -1518,18 +1538,28 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           result: state.simulationByTrack[trackId]?.result ?? null,
           error: '',
           stale: !!state.simulationByTrack[trackId]?.result,
+          partial: state.simulationByTrack[trackId]?.partial,
         },
       },
     })),
-  setSimulationResult: (trackId, result) =>
+  setSimulationResult: (trackId, result, partial = false) =>
     set((state) => ({
-      simulationByTrack: { ...state.simulationByTrack, [trackId]: { status: 'ready', result, error: '' } },
+      simulationByTrack: {
+        ...state.simulationByTrack,
+        [trackId]: partial
+          ? { status: 'ready', result, error: '', stale: true, partial: true }
+          : { status: 'ready', result, error: '' },
+      },
       tracks:
-        result.scope === 'whole-replay'
+        result.scope === 'whole-replay' && !partial
           ? state.tracks.map((track) =>
-              track.id === trackId && track.autoScore
+              track.id === trackId &&
+              // An imported replay keeps its recorded numbers until its inputs are edited; then
+              // they follow the simulation, unless they were typed by hand.
+              followsSimulation(track)
                 ? {
                     ...track,
+                    autoScore: true,
                     exportMetadata: {
                       ...track.exportMetadata,
                       ...simulationMetadataPatch(result, track.exportMetadata),

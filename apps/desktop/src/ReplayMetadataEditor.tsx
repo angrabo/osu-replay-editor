@@ -3,6 +3,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, RefreshCw } from 'lucide-reac
 import { InfoTip } from './components/InfoTip';
 import { ClientSwitch } from './components/inspector/ClientSwitch';
 import {
+  followsSimulation,
   simulationMetadataPatch,
   useEditorStore,
   type ImportedReplay,
@@ -201,10 +202,16 @@ export function ReplayMetadataEditor({
         title="Score"
         aside={
           <span
-            className={`meta-status${track.autoScore ? ' auto' : ''}`}
-            title={track.autoScore ? 'Score follows the simulation' : 'Metadata edited by hand'}
+            className={`meta-status${followsSimulation(track) ? ' auto' : ''}`}
+            title={
+              followsSimulation(track)
+                ? 'Score follows the simulation'
+                : track.scoreEdited === false
+                  ? 'The recorded score; it follows the simulation once the replay is edited'
+                  : 'Metadata edited by hand'
+            }
           >
-            {track.autoScore ? 'Auto' : 'Manual'}
+            {followsSimulation(track) ? 'Auto' : 'Manual'}
           </span>
         }
       >

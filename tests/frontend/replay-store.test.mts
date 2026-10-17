@@ -582,6 +582,34 @@ describe('track metadata, autoScore and simulation results', () => {
     useEditorStore.getState().undo();
     assert.equal(useEditorStore.getState().tracks[0].autoScore, true);
   });
+
+  test('an imported replay keeps its recorded score until its inputs are edited, then follows the simulation', () => {
+    useEditorStore.getState().clearReplays();
+    useEditorStore.getState().importReplay(first);
+    const id = useEditorStore.getState().tracks[0].id;
+    const recorded = useEditorStore.getState().tracks[0].exportMetadata.score;
+    const result = { scope: 'whole-replay', score: 4321, count300: 5, count100: 9, count50: 0, misses: 3, maxCombo: 7 } as any;
+    useEditorStore.getState().setSimulationResult(id, result);
+    assert.equal(useEditorStore.getState().tracks[0].exportMetadata.score, recorded);
+    useEditorStore.getState().setTrackMetadata(id, { playerName: 'Renamed' });
+    useEditorStore.getState().setSimulationResult(id, result);
+    assert.equal(useEditorStore.getState().tracks[0].exportMetadata.score, recorded);
+
+    useEditorStore.setState((state) => ({
+      tracks: state.tracks.map((track) => ({ ...track, replay: { ...track.replay, frames: [...track.replay.frames] } })),
+    }));
+    useEditorStore.getState().setSimulationResult(id, result, true);
+    assert.equal(useEditorStore.getState().tracks[0].exportMetadata.score, recorded, 'a partial result is not written');
+    useEditorStore.getState().setSimulationResult(id, result);
+    const track = useEditorStore.getState().tracks[0];
+    assert.equal(track.exportMetadata.score, 4321);
+    assert.equal(track.exportMetadata.hitCounts?.[1], 9);
+    assert.equal(track.autoScore, true);
+
+    useEditorStore.getState().setTrackMetadata(id, { score: 1111 }, false);
+    useEditorStore.getState().setSimulationResult(id, result);
+    assert.equal(useEditorStore.getState().tracks[0].exportMetadata.score, 1111, 'hand-typed numbers stay');
+  });
 });
 
 describe('invertCursorAxis', () => {

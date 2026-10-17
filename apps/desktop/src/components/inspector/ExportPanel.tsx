@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { AlertTriangle, Check, Download, Info } from 'lucide-react';
 import { activeMods, exportVersion, isSimulated, lazerRescalesScore } from '../../mods';
 import { sidecarRequest } from '../../sidecar';
-import { useEditorStore, type SimulationResult, type Track } from '../../stores/editor';
+import { followsSimulation, useEditorStore, type SimulationResult, type Track } from '../../stores/editor';
 import { InfoTip } from '../InfoTip';
 import { Spinner } from '../common/Loading';
 import { ClientSwitch, trackClient, trackMods } from './ClientSwitch';
 import { usePerformance } from '../../stores/performance';
+import { useSimulationPrefsStore } from '../../stores/simulationPrefs';
 
 type Note = { tone: 'ok' | 'info' | 'warning' | 'blocked'; text: string };
 
@@ -23,6 +24,8 @@ export function ExportPanel({
     const run = track ? state.simulationByTrack[track.id] : undefined;
     return !!run && (!!run.stale || run.status === 'running');
   });
+  const partial = useEditorStore((state) => !!(track && state.simulationByTrack[track.id]?.partial));
+  const requestWholeRun = useSimulationPrefsStore((state) => state.requestWholeRun);
   const performance = usePerformance(track?.id);
   const [name, setName] = useState('');
   const [status, setStatus] = useState<{ busy?: boolean; saved?: string; error?: string }>({});
@@ -34,6 +37,7 @@ export function ExportPanel({
       </p>
     );
   const metadata = track.exportMetadata;
+  const auto = followsSimulation(track);
   const client = trackClient(track);
   const selection = trackMods(track);
   const mods = activeMods(selection);
@@ -42,11 +46,16 @@ export function ExportPanel({
   const buildsScoreInfo = client === 'lazer' && !metadata.lazerScoreInfo;
   const unsimulated = mods.filter((mod) => !isSimulated(mod));
   // The format written: an old lazer format is brought up to date when the score is simulated.
-  const version = exportVersion(metadata.version, track.autoScore);
+  const version = exportVersion(metadata.version, auto);
 
   const notes: Note[] = [];
-  if (track.autoScore && !whole)
-    notes.push({ tone: 'blocked', text: 'Waiting for the simulation to finish, so the score matches the replay.' });
+  if (auto && !whole)
+    notes.push({
+      tone: 'blocked',
+      text: partial
+        ? 'Only the part around your last edit was simulated. Simulate the whole replay so the score matches it.'
+        : 'Waiting for the simulation to finish, so the score matches the replay.',
+    });
   else if (buildsScoreInfo && !whole)
     notes.push({ tone: 'blocked', text: 'Lazer needs judgement counts from a whole-replay simulation. Run it first.' });
   if (buildsScoreInfo && whole)
@@ -64,13 +73,20 @@ export function ExportPanel({
       tone: 'warning',
       text: `${unsimulated.map((mod) => mod.acronym).join(', ')} ${unsimulated.length === 1 ? 'is' : 'are'} saved in the replay but not simulated, so the score may differ in game.`,
     });
-  if (lazerRescalesScore(metadata.version, track.autoScore))
+  if (lazerRescalesScore(metadata.version, auto))
     notes.push({
       tone: 'warning',
       text: 'This replay uses a lazer format from before the mod multiplier rebalance. Lazer rescales its score on load, so it will show a different number than the one entered here.',
     });
-  if (!track.autoScore)
-    notes.push({ tone: 'warning', text: 'Score and counts were edited by hand and are exported as entered.' });
+  if (!auto)
+    notes.push(
+      track.scoreEdited === false
+        ? {
+            tone: 'info',
+            text: 'Score and counts are the recorded ones; they follow the simulation once you edit the replay.',
+          }
+        : { tone: 'warning', text: 'Score and counts were edited by hand and are exported as entered.' },
+    );
   if (whole?.status === 'verified' && !track.edited)
     notes.push({ tone: 'ok', text: 'The simulation matches the recorded replay.' });
   const blocked = notes.some((note) => note.tone === 'blocked');
@@ -97,7 +113,7 @@ export function ExportPanel({
             lazerScoreInfo: metadata.lazerScoreInfo ?? null,
             lazerMods: client === 'lazer' ? selection.lazerMods : [],
             lazerStatistics:
-              buildsScoreInfo && whole
+              client === 'lazer' && whole && (buildsScoreInfo || auto)
                 ? {
                     great: whole.count300,
                     ok: whole.count100,
@@ -111,6 +127,7 @@ export function ExportPanel({
                     smallBonusTotal: whole.spinnerSpinsTotal,
                     largeBonus: whole.spinnerBonusHit,
                     largeBonusTotal: whole.spinnerBonusTotal,
+                    accuracy: whole.accuracy / 100,
                   }
                 : null,
           },
@@ -155,7 +172,7 @@ export function ExportPanel({
           <dt>Score</dt>
           <dd>
             {metadata.score.toLocaleString('en-US')}
-            <small>{track.autoScore ? 'from simulation' : 'manual'}</small>
+            <small>{auto ? 'from simulation' : 'manual'}</small>
           </dd>
           {performance?.result && (
             <>
@@ -185,6 +202,11 @@ export function ExportPanel({
                 <AlertTriangle size={12} />
               )}
               <span>{note.text}</span>
+              {note.tone === 'blocked' && partial && (
+                <button type="button" onClick={requestWholeRun}>
+                  Simulate whole replay
+                </button>
+              )}
             </li>
           ))}
         </ul>

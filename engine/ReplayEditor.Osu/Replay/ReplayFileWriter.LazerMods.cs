@@ -122,17 +122,84 @@ public static partial class ReplayFileWriter
         var entries = existing.OfType<JsonObject>().Where(item => item["acronym"] is JsonValue).ToDictionary(
             item => item["acronym"]!.GetValue<string>(),
             StringComparer.OrdinalIgnoreCase);
-        if (existing.Count == desired.Length && desired.All(acronym => entries.ContainsKey(acronym)))
-            return original;
+        if (existing.Count != desired.Length || !desired.All(acronym => entries.ContainsKey(acronym)))
+        {
+            var updated = new JsonArray();
+            foreach (var acronym in desired)
+                updated.Add(entries.TryGetValue(acronym, out var entry)
+                                ? entry.DeepClone()
+                                : new JsonObject { ["acronym"] = acronym });
+            root["mods"] = updated;
+        }
 
-        var updated = new JsonArray();
-        foreach (var acronym in desired)
-            updated.Add(entries.TryGetValue(acronym, out var entry)
-                            ? entry.DeepClone()
-                            : new JsonObject { ["acronym"] = acronym });
-        root["mods"] = updated;
+        SyncScore(root, metadata);
+        return root.ToJsonString() == ParseScoreInfo(json).ToJsonString() ? original : Compress(root);
+    }
 
-        return Compress(root);
+    /// <summary>
+    /// Lazer shows a replay's score from its score info, not from the `.osr` header: the judgement
+    /// counts, total score, combo, accuracy and rank there are set to the exported ones. Tick, tail and
+    /// bonus counts change only when the simulation supplied them.
+    /// </summary>
+    private static void SyncScore(JsonObject root, ReplayMetadata metadata)
+    {
+        var counts = metadata.HitCounts;
+        var statistics = metadata.LazerStatistics;
+        var great = statistics?.Great ?? counts[0];
+        var ok = statistics?.Ok ?? counts[1];
+        var meh = statistics?.Meh ?? counts[2];
+        var miss = statistics?.Miss ?? counts[5];
+
+        var hit = root["statistics"] as JsonObject ?? new JsonObject();
+        int Read(JsonObject? source, string name) =>
+            source?[name] is JsonValue value && value.TryGetValue<int>(out var number) ? number : 0;
+        long ReadLong(string name) =>
+            root[name] is JsonValue value && value.TryGetValue<long>(out var number) ? number : -1;
+        // Nothing changed (a replay exported as imported): keep the score info exactly as it was,
+        // including the accuracy lazer computed itself.
+        if (statistics is null && Read(hit, "great") == great && Read(hit, "ok") == ok && Read(hit, "meh") == meh &&
+            Read(hit, "miss") == miss && ReadLong("total_score") == metadata.Score &&
+            ReadLong("max_combo") == metadata.MaxCombo)
+            return;
+        root["statistics"] = hit;
+        void Set(JsonObject target, string name, int value)
+        {
+            if (value > 0)
+                target[name] = value;
+            else
+                target.Remove(name);
+        }
+
+        Set(hit, "great", great);
+        Set(hit, "ok", ok);
+        Set(hit, "meh", meh);
+        Set(hit, "miss", miss);
+        if (statistics is not null)
+        {
+            var maximum = root["maximum_statistics"] as JsonObject ?? new JsonObject();
+            root["maximum_statistics"] = maximum;
+            Set(hit, "large_tick_hit", statistics.LargeTickHit);
+            Set(hit, "large_tick_miss", statistics.LargeTickTotal - statistics.LargeTickHit);
+            Set(hit, "slider_tail_hit", statistics.SliderTailHit);
+            Set(hit, "small_bonus", statistics.SmallBonus);
+            Set(hit, "large_bonus", statistics.LargeBonus);
+            Set(maximum, "great", great + ok + meh + miss);
+            Set(maximum, "large_tick_hit", statistics.LargeTickTotal);
+            Set(maximum, "slider_tail_hit", statistics.SliderTailTotal);
+            Set(maximum, "small_bonus", statistics.SmallBonusTotal);
+            Set(maximum, "large_bonus", statistics.LargeBonusTotal);
+        }
+
+        var objects = great + ok + meh + miss;
+        var accuracy = statistics?.Accuracy ??
+                       (objects == 0 ? 1 : (300d * great + 100d * ok + 50d * meh) / (300d * objects));
+        if (root["total_score"] is JsonValue oldTotal && oldTotal.TryGetValue<long>(out var previous) && previous > 0 &&
+            root["total_score_without_mods"] is JsonValue withoutMods && withoutMods.TryGetValue<long>(out var bare))
+            root["total_score_without_mods"] = (long)Math.Round(bare * (double)metadata.Score / previous);
+        root["total_score"] = metadata.Score;
+        root["max_combo"] = (int)metadata.MaxCombo;
+        root["accuracy"] = accuracy;
+        root["rank"] = Rank(great, objects, miss, accuracy, metadata.Mods);
     }
 
     /// <summary>
@@ -165,7 +232,8 @@ public static partial class ReplayFileWriter
         return new JsonObject
         {
             ["client_version"] = "osu! Replay Editor",
-            ["rank"] = Rank(statistics, objects, metadata.Mods),
+            ["rank"] = Rank(statistics.Great, objects, statistics.Miss, statistics.Accuracy ?? BasicAccuracy(statistics, objects),
+                metadata.Mods),
             ["user_id"] = 1,
             ["online_id"] = -1,
             ["mods"] = new JsonArray(mods.Select(acronym => (JsonNode)new JsonObject { ["acronym"] = acronym }).ToArray()),
@@ -175,16 +243,17 @@ public static partial class ReplayFileWriter
         };
     }
 
-    private static string Rank(LazerScoreStatistics statistics, int objects, int mods)
+    private static double BasicAccuracy(LazerScoreStatistics statistics, int objects) => objects == 0
+        ? 1
+        : (300d * statistics.Great + 100d * statistics.Ok + 50d * statistics.Meh) / (300d * objects);
+
+    private static string Rank(int great, int objects, int miss, double accuracy, int mods)
     {
-        var accuracy = objects == 0
-            ? 1
-            : (300d * statistics.Great + 100d * statistics.Ok + 50d * statistics.Meh) / (300d * objects);
         // Hidden and Flashlight turn SS and S silver.
         var silver = (mods & (8 | 1024)) != 0 ? "H" : "";
-        if (statistics.Great == objects)
+        if (great == objects)
             return "X" + silver;
-        if (accuracy >= .95 && statistics.Miss == 0)
+        if (accuracy >= .95 && miss == 0)
             return "S" + silver;
         return accuracy >= .9 ? "A" : accuracy >= .8 ? "B" : accuracy >= .7 ? "C" : "D";
     }

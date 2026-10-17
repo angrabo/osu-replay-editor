@@ -238,6 +238,39 @@ public sealed class ReplayCodecTests(ReplayCodecFixture fixture) : IClassFixture
     }
 
     [Fact]
+    public void EditedLazerReplayWritesItsNewScoreIntoTheScoreInfo()
+    {
+        var metadata = fixture.LazerWithMods.Metadata;
+        var edited = ReplayFileReader.Read(ReplayFileWriter.Write(
+            metadata with { HitCounts = [95, 9, 0, 0, 0, 3], Score = 821744, MaxCombo = 321 },
+            fixture.LazerWithMods.Frames));
+        using (var scoreInfo = ScoreInfo(edited))
+        {
+            var root = scoreInfo.RootElement;
+            var hit = root.GetProperty("statistics");
+            Assert.Equal(95, hit.GetProperty("great").GetInt32());
+            Assert.Equal(9, hit.GetProperty("ok").GetInt32());
+            Assert.Equal(3, hit.GetProperty("miss").GetInt32());
+            Assert.False(hit.TryGetProperty("meh", out _));
+            Assert.Equal(821744, root.GetProperty("total_score").GetInt64());
+            Assert.Equal(321, root.GetProperty("max_combo").GetInt32());
+            Assert.Equal("A", root.GetProperty("rank").GetString());
+        }
+
+        // The simulation's tick counts and accuracy go in as given.
+        var statistics = new ReplayEditor.Core.LazerScoreStatistics(95, 9, 0, 3, 17, 19, 40, 44, 0, 0, 0, 0, 0.9612);
+        using var simulated = ScoreInfo(ReplayFileReader.Read(ReplayFileWriter.Write(
+            edited.Metadata with { LazerStatistics = statistics }, edited.Frames)));
+        Assert.Equal(0.9612, simulated.RootElement.GetProperty("accuracy").GetDouble());
+        Assert.Equal(17, simulated.RootElement.GetProperty("statistics").GetProperty("large_tick_hit").GetInt32());
+        Assert.Equal(107, simulated.RootElement.GetProperty("maximum_statistics").GetProperty("great").GetInt32());
+
+        // Exported as imported: the score info is left byte for byte.
+        var unchanged = ReplayFileReader.Read(ReplayFileWriter.Write(edited.Metadata, edited.Frames));
+        Assert.True(unchanged.Metadata.LazerScoreInfo!.SequenceEqual(edited.Metadata.LazerScoreInfo!));
+    }
+
+    [Fact]
     public void LazerExportWithoutScoreInfoOrStatisticsStillRefusesMods()
     {
         Assert.Throws<InvalidDataException>(() => ReplayFileWriter.Write(

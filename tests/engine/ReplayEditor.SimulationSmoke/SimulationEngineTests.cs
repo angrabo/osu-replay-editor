@@ -48,6 +48,15 @@ public sealed class SimulationEngineTests
                 && timeline.Zip(timeline.Skip(1)).All(pair => pair.First.Time <= pair.Second.Time),
                 $"expected a {live.Client} live timeline ending at the final score");
 
+        // A window judges only the objects inside it, exactly as the whole replay does.
+        var window = SimulationEngine.SimulateWindow(map, frames, 0, 0, result.Judgements[1].StartTime, result.Judgements[2].StartTime);
+        Assert.True(window.Scope == "window"
+            && window.Judgements.Select(item => (item.ObjectIndex, item.Result, item.HitError))
+                .SequenceEqual(result.Judgements.Skip(1).Take(2).Select(item => (item.ObjectIndex, item.Result, item.HitError))),
+            "window judgements match the whole replay");
+        Assert.True(window.Judgements.All(item => item.ObjectX != 0 || item.ObjectY != 0) && result.Windows is { Great: > 0 },
+            "judged positions and hit windows are reported");
+
         Assert.True(result.Count300 == 1, "expected one 300");
         Assert.True(result.Count100 == 1, "expected one 100");
         Assert.True(result.Count50 == 1, "expected one 50");

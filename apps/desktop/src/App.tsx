@@ -28,6 +28,7 @@ import { parseProjectFile, PROJECT_FILE_EXTENSION } from './project';
 import { useProjectFile } from './hooks/useProjectFile';
 import { startPerformanceRunner, usePerformanceStore } from './stores/performance';
 import { ExportClipDialog } from './export/ExportClipDialog';
+import { TimingFixDialog, useTimingFixDialog } from './components/timing/TimingFixDialog';
 import { forgetRecentFile, readUserFile, recordRecentFile, type RecentFile } from './recentFiles';
 
 export default function App() {
@@ -52,6 +53,7 @@ export default function App() {
   const [acquisitionAction, setAcquisitionAction] = useState<AcquisitionAction>('open');
   const [recentReplayPaths, setRecentReplayPaths] = useState<string[]>([]);
   const [exportOpen, setExportOpen] = useState(false);
+  const timingFixOpen = useTimingFixDialog((state) => state.open);
   const [resolution, setResolution] = useState<Resolution | null>(() =>
     import.meta.env.DEV && new URLSearchParams(window.location.search).has('viewer-fixture')
       ? {
@@ -414,6 +416,7 @@ export default function App() {
         </span>
       </footer>
       {exportOpen && <ExportClipDialog onClose={() => setExportOpen(false)} />}
+      {timingFixOpen && <TimingFixDialog />}
       {acquisitionOpen && (
         <MapAcquisition
           currentResolution={resolution}

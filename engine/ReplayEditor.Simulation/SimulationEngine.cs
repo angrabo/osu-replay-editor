@@ -104,9 +104,34 @@ public static class SimulationEngine
         };
     }
 
+    /// <summary>
+    /// Judges only the objects starting between <paramref name="startMs"/> and <paramref name="endMs"/>,
+    /// for a quick check after an edit. Objects from a second earlier are judged too, so the presses
+    /// they take and the notelock they cause are in place, but only the range is returned. Score,
+    /// combo and counts are not meaningful for a part of a replay.
+    /// </summary>
+    public static SimulationResult SimulateWindow(string osuText, IReadOnlyList<SimulationFrame> sourceFrames, int mods,
+        int replayVersion, double startMs, double endMs, CancellationToken cancellationToken = default,
+        double scoreMultiplier = 1)
+    {
+        if (!double.IsFinite(startMs) || !double.IsFinite(endMs) || endMs < startMs)
+            throw new ArgumentException("The window must have a finite start and an end after it.");
+
+        var result = SimulateWhole(osuText, sourceFrames, mods, replayVersion, cancellationToken, scoreMultiplier,
+            window: (startMs - WindowLeadInMs, endMs));
+        return result with
+        {
+            Scope = "window",
+            Judgements = result.Judgements.Where(item => item.StartTime >= startMs && item.StartTime <= endMs).ToArray(),
+            Timeline = null,
+        };
+    }
+
+    private const double WindowLeadInMs = 1000;
+
     public static SimulationResult SimulateWhole(string osuText, IReadOnlyList<SimulationFrame> sourceFrames, int mods, int replayVersion = 0,
         CancellationToken cancellationToken = default, double scoreMultiplier = 1, bool lazerInclusiveLateHitWindows = false,
-        int? failAfterJudgedObjects = null)
+        int? failAfterJudgedObjects = null, (double From, double To)? window = null)
     {
         var client = replayVersion >= 30000000 ? "lazer" : "stable";
         var map = BeatmapTextParser.Parse(osuText, mods, lazerStacking: client == "lazer");
@@ -176,6 +201,9 @@ public static class SimulationEngine
             var item = map.Objects[objectIndex];
             var start = item.Start / rate;
             var end = item.End / rate;
+            // A window simulation judges only the objects inside it.
+            if (window is { } range && (start < range.From || start > range.To))
+                continue;
             string result;
             int value;
             double? hitTime = null;
@@ -313,7 +341,7 @@ public static class SimulationEngine
             if (judged)
                 judgements.Add(new ObjectJudgement(objectIndex, item.Kind, start, end, result, value, hitTime, hitError,
                 double.IsFinite(distance) ? Math.Round(distance, 3) : -1, inside, key, combo, score,
-                sliderParts.Skip(1).Count(part => part.Hit), Math.Max(0, sliderParts.Length - 1)));
+                sliderParts.Skip(1).Count(part => part.Hit), Math.Max(0, sliderParts.Length - 1), item.X, item.Y));
         }
 
         var total = map.Objects.Length;
@@ -338,7 +366,8 @@ public static class SimulationEngine
             sliderTicksHit, sliderTicksTotal, sliderEndsHit, sliderEndsTotal,
             spinnerSpinsHit, spinnerSpinsTotal, spinnerBonusHit, spinnerBonusTotal, geki, katu, perfect,
             // Shown times can differ slightly from scoring order (a circle shows at its press).
-            timeline.OrderBy(point => point.Time).Select(point => point with { Time = Math.Round(point.Time, 1) }).ToArray());
+            timeline.OrderBy(point => point.Time).Select(point => point with { Time = Math.Round(point.Time, 1) }).ToArray(),
+            new HitWindowsInfo(hitWindow300, hitWindow100, hitWindow50));
     }
 
     private static (double Great, double Ok, double Meh) HitWindows(double od, double rate)

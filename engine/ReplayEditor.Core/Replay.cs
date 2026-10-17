@@ -42,7 +42,9 @@ public sealed record LazerScoreStatistics(
     int SmallBonus,
     int SmallBonusTotal,
     int LargeBonus,
-    int LargeBonusTotal);
+    int LargeBonusTotal,
+    // The score's accuracy as lazer counts it (0–1), from the simulation; derived from the counts when absent.
+    double? Accuracy = null);
 
 public sealed record ReplayFile(
     ReplayMetadata Metadata,

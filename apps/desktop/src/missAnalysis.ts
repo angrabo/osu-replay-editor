@@ -72,7 +72,12 @@ export function analyseMisses(input: {
       continue;
     }
 
-    const centre = { x: object.x, y: hardRock ? 384 - object.y : object.y };
+    // Where the engine judged the object (stacking and Hard Rock applied); older results only
+    // have the beatmap position.
+    const centre =
+      judgement.objectX !== undefined && judgement.objectY !== undefined
+        ? { x: judgement.objectX, y: judgement.objectY }
+        : { x: object.x, y: hardRock ? 384 - object.y : object.y };
     const around = presses
       .filter(
         (press) =>
@@ -88,6 +93,8 @@ export function analyseMisses(input: {
       });
     const inWindow = around.filter((press) => Math.abs(press.offset) <= windows.meh);
     const onTarget = inWindow.filter((press) => press.distance <= radius);
+    // Presses that judged another object say nothing about how this one was missed.
+    const free = around.filter((press) => !spentOn.has(Math.round(press.timeMs)));
 
     if (onTarget.length) {
       const press = onTarget.find((item) => !spentOn.has(Math.round(item.timeMs)));
@@ -129,42 +136,40 @@ export function analyseMisses(input: {
         });
       continue;
     }
-    if (inWindow.length) {
-      const closest = [...inWindow].sort((a, b) => a.distance - b.distance)[0];
-      entry({
-        kind: 'aim',
-        summary: `Aim · ${px(closest.distance - radius)} outside the circle`,
-        detail: `${closest.key} at ${ms(closest.offset)}, cursor ${px(closest.distance)} from the centre (radius ${px(radius)}).`,
-      });
-      continue;
-    }
-    const early = around.filter((press) => press.offset < -windows.meh).sort((a, b) => b.offset - a.offset)[0];
-    if (early) {
-      entry({
-        kind: 'early',
-        summary: `Too early · ${ms(early.offset)}`,
-        detail: `${early.key} landed ${Math.round(-early.offset - windows.meh)} ms before the 50 window opened.`,
-      });
-      continue;
-    }
-    const late = around.filter((press) => press.offset > windows.meh).sort((a, b) => a.offset - b.offset)[0];
-    if (late) {
-      entry({
-        kind: 'late',
-        summary: `Too late · ${ms(late.offset)}`,
-        detail: `${late.key} landed ${Math.round(late.offset - windows.meh)} ms after the 50 window closed.`,
-      });
+    // The press meant for this object: of the ones not used elsewhere, the one nearest its time.
+    // It missed by timing, by aim, or both; when both, the larger miss relative to its allowance
+    // (the 50 window, the circle radius) is named first.
+    const meant = [...free].sort((a, b) => Math.abs(a.offset) - Math.abs(b.offset))[0];
+    if (meant) {
+      const late = Math.max(0, Math.abs(meant.offset) - windows.meh);
+      const off = Math.max(0, meant.distance - radius);
+      const timing = late > 0 ? `${meant.offset < 0 ? 'Too early' : 'Too late'} · ${ms(meant.offset)}` : null;
+      const timingDetail = `${meant.key} at ${ms(meant.offset)}, ${Math.round(late)} ms ${meant.offset < 0 ? 'before the 50 window opened' : 'after the 50 window closed'}`;
+      const aimDetail = `cursor ${px(meant.distance)} from the centre (radius ${px(radius)})`;
+      if (timing && (off <= 0 || late / windows.meh >= off / radius))
+        entry({
+          kind: meant.offset < 0 ? 'early' : 'late',
+          summary: off > 0 ? `${timing}, also ${px(off)} off` : timing,
+          detail:
+            off > 0 ? `${timingDetail}; the ${aimDetail} as well.` : `${timingDetail}, with the cursor on the circle.`,
+        });
+      else
+        entry({
+          kind: 'aim',
+          summary: `Aim · ${px(off)} outside the circle${timing ? `, also ${timing.toLowerCase()}` : ''}`,
+          detail: `${meant.key} at ${ms(meant.offset)}, ${aimDetail}.`,
+        });
       continue;
     }
     const cursor = replayPointAt(frames, object.startTime);
     const distance = cursor ? Math.hypot(cursor.x - centre.x, cursor.y - centre.y) : null;
+    const spent = inWindow.length > 0;
     entry({
       kind: 'no-press',
       summary: 'No press',
       detail:
-        distance === null
-          ? 'No key was pressed near this object.'
-          : `No key was pressed near this object; the cursor was ${px(distance)} from the centre.`,
+        (spent ? 'The presses near this object all judged other objects. ' : 'No key was pressed near this object. ') +
+        (distance === null ? '' : `The cursor was ${px(distance)} from the centre.`),
     });
   }
   return entries.sort((a, b) => a.time - b.time);

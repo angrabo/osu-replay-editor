@@ -4,6 +4,7 @@ import { timelineStart, useEditorStore } from '../../stores/editor';
 import { FileMenu } from './FileMenu';
 import type { RecentFile } from '../../recentFiles';
 import { EditMenu } from './EditMenu';
+import { useTimingFixDialog } from '../timing/TimingFixDialog';
 import { ViewMenu } from './ViewMenu';
 import { PlaybackMenu } from './PlaybackMenu';
 import { TimelineMenu } from './TimelineMenu';
@@ -143,6 +144,10 @@ export function MenuBar({
             }}
             onInvertAxis={(axis) => {
               invertCursorAxis(axis);
+              setMenuOpen(null);
+            }}
+            onFixTiming={() => {
+              useTimingFixDialog.getState().setOpen(true);
               setMenuOpen(null);
             }}
           />

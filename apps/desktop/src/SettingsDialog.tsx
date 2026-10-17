@@ -25,7 +25,12 @@ import { PerformanceSettings } from './components/settings/PerformanceSettings';
 import { InfoTip } from './components/InfoTip';
 import { clearRecentFiles, readRecentFiles } from './recentFiles';
 import { AUTOSAVE_INTERVALS, useAutosaveStore } from './stores/autosave';
-import { MAX_EDIT_SIMULATION_DELAY_MS, useSimulationPrefsStore } from './stores/simulationPrefs';
+import {
+  MAX_AROUND_EDIT_MS,
+  MAX_EDIT_SIMULATION_DELAY_MS,
+  useSimulationPrefsStore,
+  type AfterEditScope,
+} from './stores/simulationPrefs';
 
 type AccountSettings = { rememberSession: boolean; storageDirectory: string };
 type CategoryId =
@@ -62,6 +67,10 @@ const categories: Category[] = [
       {
         title: 'Simulate after editing',
         description: 'How long the editor waits after your last edit before it simulates the replay again.',
+      },
+      {
+        title: 'After an edit, simulate',
+        description: 'The whole replay, or only the objects around the edit for a quicker check.',
       },
       { title: 'Updates', description: 'Check GitHub for a newer signed build.' },
       { title: 'Changelog', description: 'What changed in this and past versions.' },
@@ -164,6 +173,10 @@ export function SettingsDialog({
   const [active, setActive] = useState<CategoryId>('general');
   const editDelayMs = useSimulationPrefsStore((state) => state.editDelayMs);
   const setEditDelayMs = useSimulationPrefsStore((state) => state.setEditDelayMs);
+  const afterEdit = useSimulationPrefsStore((state) => state.afterEdit);
+  const setAfterEdit = useSimulationPrefsStore((state) => state.setAfterEdit);
+  const aroundMs = useSimulationPrefsStore((state) => state.aroundMs);
+  const setAroundMs = useSimulationPrefsStore((state) => state.setAroundMs);
   const autosaveEnabled = useAutosaveStore((state) => state.enabled);
   const autosaveMinutes = useAutosaveStore((state) => state.minutes);
   const setAutosaveEnabled = useAutosaveStore((state) => state.setEnabled);
@@ -337,6 +350,43 @@ export function SettingsDialog({
                           }}
                         />
                         <span className="setting-value">ms</span>
+                      </SettingRow>
+                      <SettingRow
+                        title="After an edit, simulate"
+                        info="Around the edit checks only the objects near what you changed (plus this much before and after) and updates their judgements quickly. Score and combo then show as outdated until you run the whole replay from the simulation readout."
+                      >
+                        <select
+                          aria-label="What to simulate after an edit"
+                          value={afterEdit}
+                          onChange={(event) => setAfterEdit(event.target.value as AfterEditScope)}
+                        >
+                          <option value="whole">Whole replay</option>
+                          <option value="around">Around the edit</option>
+                        </select>
+                        {afterEdit === 'around' && (
+                          <>
+                            <span className="setting-value">±</span>
+                            <input
+                              key={aroundMs}
+                              className="setting-number"
+                              type="number"
+                              aria-label="Time simulated before and after an edit, in milliseconds"
+                              min={0}
+                              max={MAX_AROUND_EDIT_MS}
+                              step={500}
+                              defaultValue={aroundMs}
+                              onBlur={(event) => {
+                                const value = Number(event.currentTarget.value);
+                                if (event.currentTarget.value !== '' && Number.isFinite(value)) setAroundMs(value);
+                                else event.currentTarget.value = String(aroundMs);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') event.currentTarget.blur();
+                              }}
+                            />
+                            <span className="setting-value">ms</span>
+                          </>
+                        )}
                       </SettingRow>
                       <PerformanceSettings />
                       <SettingRow title="Changelog" info="What changed in this and past versions.">
