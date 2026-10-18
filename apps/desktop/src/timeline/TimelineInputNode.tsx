@@ -76,7 +76,7 @@ export function TimelineInputNode({
       {item.width >= item.track.name.length * 6 + 12 && item.height >= 10 && (
         <span className="input-key-label">{item.track.name}</span>
       )}
-      {!item.track.locked && (
+      {!item.track.locked && item.original.endTime > item.original.startTime && (
         <>
           <span
             className="input-handle left"

@@ -1,6 +1,6 @@
 import type { CursorLayerId } from '@ore/beatmap-viewer';
 import { shortcutLabel, useKeybindingsVersion, type KeyActionId } from '../../keybindings';
-import { Brush, Eye, Hand, MousePointer2, Pencil, Scan, SlidersHorizontal, Spline, Clock3 } from 'lucide-react';
+import { Brush, Eye, MousePointer2, Pencil, Scan, SlidersHorizontal, Spline, Clock3 } from 'lucide-react';
 import { useEditorStore, type Tool } from '../../stores/editor';
 import { OptionTilesPopover } from './OptionTilesPopover';
 import { SnapWidget } from '../../hooks/useSnapDrag';
@@ -40,6 +40,7 @@ export function EditorQuickbar() {
   const setCursorLayerOrder = useEditorStore((state) => state.setCursorLayerOrder);
   const showClickMarkers = useEditorStore((state) => state.showClickMarkers);
   const setCursorDisplay = useEditorStore((state) => state.setCursorDisplay);
+  const hideSkinCursor = useEditorStore((state) => state.hideSkinCursor);
   const wireframeGameplay = useEditorStore((state) => state.wireframeGameplay);
   const fadeAfterClick = useEditorStore((state) => state.fadeAfterClick);
   const showHitJudgements = useEditorStore((state) => state.showHitJudgements);
@@ -63,7 +64,6 @@ export function EditorQuickbar() {
       icon: <MousePointer2 size={16} />,
       label: withKey('Select cursor frames, Ctrl+click adds', 'tool-select'),
     },
-    { id: 'hand', icon: <Hand size={16} />, label: withKey('Pan playfield', 'tool-hand') },
     { id: 'draw', icon: <Pencil size={16} />, label: withKey('Draw cursor path in selected time range', 'tool-draw') },
     { id: 'curve', icon: <Spline size={16} />, label: withKey('Move cursor frames', 'tool-move-frames') },
     {
@@ -236,12 +236,20 @@ export function EditorQuickbar() {
         title="Gameplay filters"
         description="Changes apply immediately to the playfield."
         storageKey="osu-replay-editor.popover-size.gameplay-filters"
-        active={wireframeGameplay || fadeAfterClick || showHitJudgements || showHiddenFade || showSliderEndWindows}
+        active={
+          hideSkinCursor ||
+          wireframeGameplay ||
+          fadeAfterClick ||
+          showHitJudgements ||
+          showHiddenFade ||
+          showSliderEndWindows
+        }
         tiles={(
           [
             ['wireframeGameplay', 'Wireframe gameplay', wireframeGameplay, optionPreviews.wireframe],
             ['fadeAfterClick', 'Fade after click', fadeAfterClick, optionPreviews.fadeAfterClick],
             ['showHitJudgements', 'Show 100, 50 and misses', showHitJudgements, optionPreviews.judgements],
+            ['hideSkinCursor', 'Hide skin cursor', hideSkinCursor, optionPreviews.hideSkinCursor],
             ['showHiddenFade', 'Show Hidden fade', showHiddenFade, optionPreviews.hiddenFade],
             ['showSliderEndWindows', 'Show slider end windows', showSliderEndWindows, optionPreviews.sliderEnds],
             ['showSliderTracking', 'Show slider breaks', showSliderTracking, optionPreviews.sliderTracking],

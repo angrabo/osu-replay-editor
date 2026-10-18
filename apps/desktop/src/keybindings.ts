@@ -39,7 +39,6 @@ export type KeyActionId =
   | 'previous-marker'
   | 'tool-move-frames'
   | 'tool-select'
-  | 'tool-hand'
   | 'tool-draw'
   | 'tool-brush'
   | 'tool-zoom'
@@ -100,7 +99,6 @@ export const keyActions: KeyAction[] = [
     defaults: ['KeyT'],
   },
   { id: 'tool-select', label: 'Select tool', group: 'Playfield tools', scope: 'playfield', defaults: ['KeyV'] },
-  { id: 'tool-hand', label: 'Pan tool', group: 'Playfield tools', scope: 'playfield', defaults: ['KeyH'] },
   { id: 'tool-draw', label: 'Draw cursor path tool', group: 'Playfield tools', scope: 'playfield', defaults: ['KeyP'] },
   { id: 'tool-brush', label: 'Brush tool', group: 'Playfield tools', scope: 'playfield', defaults: [] },
   { id: 'tool-zoom', label: 'Zoom tool', group: 'Playfield tools', scope: 'playfield', defaults: [] },

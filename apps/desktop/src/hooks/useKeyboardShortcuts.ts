@@ -7,7 +7,6 @@ import { actionForEvent, type KeyScope } from '../keybindings';
 
 const playfieldTools: Partial<Record<string, Tool>> = {
   'tool-select': 'select',
-  'tool-hand': 'hand',
   'tool-draw': 'draw',
   'tool-brush': 'brush',
   'tool-zoom': 'zoom',

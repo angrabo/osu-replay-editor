@@ -219,6 +219,13 @@ export const optionPreviews = {
       <Cursor x={104} y={16} />
     </Frame>
   ),
+  hideSkinCursor: (
+    <Frame>
+      <HitCircle x={30} y={38} n="1" />
+      <HitCircle x={90} y={38} n="2" />
+      <path d="M30 38 Q60 10 90 38" fill="none" stroke={BLUE} strokeWidth="2" />
+    </Frame>
+  ),
   hiddenFade: (
     <Frame>
       <HitCircle x={24} y={38} n="1" opacity={0.12} />
