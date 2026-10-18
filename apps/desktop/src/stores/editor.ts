@@ -75,7 +75,7 @@ export type ImportedReplay = {
   keyEvents: ReplayKeyEvent[];
 };
 
-export type Tool = 'select' | 'hand' | 'draw' | 'curve' | 'zoom' | 'brush';
+export type Tool = 'select' | 'draw' | 'curve' | 'zoom' | 'brush';
 export type Snap = 'off' | 'hit-window' | 'hit-object' | 'all' | 'timing-point' | 'replay-frame';
 export type BeatmapTimelineObject = {
   startTime: number;
@@ -224,6 +224,7 @@ export type EditorState = {
   snakingSliders: boolean;
   snakingOutSliders: boolean;
   setSliderDisplay: (option: 'hideCollectedTicks' | 'snakingSliders' | 'snakingOutSliders', enabled: boolean) => void;
+  hideSkinCursor: boolean;
   wireframeGameplay: boolean;
   fadeAfterClick: boolean;
   showHitJudgements: boolean;
@@ -308,6 +309,7 @@ export type EditorState = {
   setCompactMode: (enabled: boolean) => void;
   setGameplayFilter: (
     filter:
+      | 'hideSkinCursor'
       | 'wireframeGameplay'
       | 'fadeAfterClick'
       | 'showHitJudgements'
@@ -449,6 +451,7 @@ function readSliderDisplay(): typeof sliderDisplayDefaults {
   }
 }
 const gameplayFilterStorageKeys = {
+  hideSkinCursor: 'osu-replay-editor.filter-hide-skin-cursor',
   wireframeGameplay: 'osu-replay-editor.filter-wireframe',
   fadeAfterClick: 'osu-replay-editor.filter-fade-after-click',
   showHitJudgements: 'osu-replay-editor.filter-hit-judgements',
@@ -568,6 +571,7 @@ export function readPlayfieldPreferences(): Pick<
   | 'cursorSize'
   | 'showGrid'
   | 'compactMode'
+  | 'hideSkinCursor'
   | 'wireframeGameplay'
   | 'fadeAfterClick'
   | 'showHitJudgements'
@@ -592,6 +596,7 @@ export function readPlayfieldPreferences(): Pick<
       cursorSize: Number.isFinite(cursorSize) && cursorSize >= 50 && cursorSize <= 200 ? cursorSize : 100,
       showGrid: grid === null ? true : grid !== 'false',
       compactMode: compactMode === 'true',
+      hideSkinCursor: localStorage.getItem(gameplayFilterStorageKeys.hideSkinCursor) === 'true',
       wireframeGameplay: localStorage.getItem(gameplayFilterStorageKeys.wireframeGameplay) === 'true',
       fadeAfterClick: localStorage.getItem(gameplayFilterStorageKeys.fadeAfterClick) === 'true',
       showHitJudgements: localStorage.getItem(gameplayFilterStorageKeys.showHitJudgements) === 'true',
@@ -608,6 +613,7 @@ export function readPlayfieldPreferences(): Pick<
       cursorSize: 100,
       showGrid: true,
       compactMode: false,
+      hideSkinCursor: false,
       wireframeGameplay: false,
       fadeAfterClick: false,
       showHitJudgements: false,
@@ -740,7 +746,7 @@ export function replayInputIntervals(trackId: string, replay: ImportedReplay): I
       if (!active.has(event.key)) active.set(event.key, event.timeMs);
     } else {
       const startTime = active.get(event.key);
-      if (startTime !== undefined && event.timeMs > startTime)
+      if (startTime !== undefined && event.timeMs >= startTime)
         intervals.push({ trackId, key: event.key, startTime, endTime: event.timeMs });
       active.delete(event.key);
     }
@@ -774,17 +780,43 @@ export function editReplayInputs(
   const frames = replay.frames.map((frame) => ({ ...frame })).sort((a, b) => a.timeMs - b.timeMs);
   const apply = (input: InputSelection, down: boolean) => {
     const startTime = Math.round(input.startTime);
+    const bit = 1 << inputKeys.indexOf(input.key);
+    if (!down && input.endTime === input.startTime) {
+      // Remove only the instantaneous press, preserving a neighbouring hold at the same time.
+      for (let index = 0; index < frames.length; index++) {
+        if (
+          frames[index].timeMs !== startTime ||
+          !(logicalKeys(frames[index].keys) & bit) ||
+          (index > 0 && logicalKeys(frames[index - 1].keys) & bit)
+        )
+          continue;
+        let end = index + 1;
+        while (end < frames.length && frames[end].timeMs === startTime && logicalKeys(frames[end].keys) & bit) end++;
+        if (frames[end]?.timeMs !== startTime) continue;
+        for (let held = index; held < end; held++)
+          frames[held].keys = rawKeysFromLogical(logicalKeys(frames[held].keys) & ~bit, frames[held].keys);
+        break;
+      }
+      return;
+    }
     const endTime = Math.max(startTime + 1, Math.round(input.endTime));
     ensureFrame(frames, startTime, true);
     ensureFrame(frames, endTime, true);
-    const bit = 1 << inputKeys.indexOf(input.key);
     const conflictingBit = bit === 1 ? 4 : bit === 4 ? 1 : bit === 2 ? 8 : 2;
-    for (const frame of frames)
-      if (frame.timeMs >= startTime && frame.timeMs < endTime) {
+    let reachedRelease = false;
+    for (const frame of frames) {
+      // Lazer can record a held frame and its release at the same time. Clear through
+      // that release, without erasing a separate press later at the same timestamp.
+      if (frame.timeMs === endTime && (logicalKeys(frame.keys) & bit) === 0) reachedRelease = true;
+      if (
+        frame.timeMs >= startTime &&
+        (frame.timeMs < endTime || (!down && frame.timeMs === endTime && !reachedRelease))
+      ) {
         let logical = logicalKeys(frame.keys);
         logical = down ? (logical & ~conflictingBit) | bit : logical & ~bit;
         frame.keys = rawKeysFromLogical(logical, frame.keys);
       }
+    }
   };
   for (const edit of edits) if (edit.original) apply(edit.original, false);
   for (const edit of edits) if (edit.next) apply(edit.next, true);

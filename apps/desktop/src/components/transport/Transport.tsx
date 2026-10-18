@@ -1,4 +1,14 @@
-import { FastForward, LocateFixed, Pause, Play, Rewind, SkipBack, SkipForward } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  FastForward,
+  LocateFixed,
+  Pause,
+  Play,
+  Rewind,
+  SkipBack,
+  SkipForward,
+} from 'lucide-react';
 import { timelineStart, useEditorStore } from '../../stores/editor';
 import { jumpTo, type JumpTarget } from '../../navigation';
 
@@ -21,6 +31,7 @@ export function Transport({ compact = false }: { compact?: boolean }) {
     state.previewTrackId ? state.simulationByTrack[state.previewTrackId]?.result : null,
   );
   const hasSliderBreaks = useEditorStore((state) => state.sliderBreaks.length > 0);
+  const hasObjects = useEditorStore((state) => state.beatmapObjects.length > 0);
   const available = (target: JumpTarget) =>
     target === 'combo-break'
       ? !!simulation || hasSliderBreaks
@@ -33,8 +44,24 @@ export function Transport({ compact = false }: { compact?: boolean }) {
       <button title="Back five seconds" onClick={() => setPlayhead(playhead - 5000)}>
         <Rewind size={17} fill="currentColor" />
       </button>
+      <button
+        title="Previous hit object"
+        aria-label="Previous hit object"
+        disabled={!hasObjects}
+        onClick={() => jumpTo('object', -1)}
+      >
+        <ChevronLeft size={18} />
+      </button>
       <button className="transport-play" title={playing ? 'Pause' : 'Play'} onClick={() => setPlaying(!playing)}>
         {playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
+      </button>
+      <button
+        title="Next hit object"
+        aria-label="Next hit object"
+        disabled={!hasObjects}
+        onClick={() => jumpTo('object', 1)}
+      >
+        <ChevronRight size={18} />
       </button>
       <button title="Forward five seconds" onClick={() => setPlayhead(Math.min(durationMs, playhead + 5000))}>
         <FastForward size={17} fill="currentColor" />

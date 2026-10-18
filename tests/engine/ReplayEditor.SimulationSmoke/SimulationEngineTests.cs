@@ -7,6 +7,127 @@ namespace ReplayEditor.SimulationSmoke;
 public sealed class SimulationEngineTests
 {
     [Fact]
+    public void ZetsuSameTimestampReleaseDoesNotBecomeAnEarlyPress()
+    {
+        const string map = """
+        osu file format v14
+        [General]
+        StackLeniency:0.4
+        [Difficulty]
+        CircleSize:4
+        OverallDifficulty:9.8
+        ApproachRate:10
+        [HitObjects]
+        262,108,44682,1,0,0:0:0:0:
+        150,143,44835,1,8,3:0:0:0:
+        """;
+        SimulationFrame[] frames = [
+            new(44702, 258.13323974609375, 97.16920471191406, 0),
+            new(44713, 255.6048583984375, 98.21534729003906, 2),
+            new(44798, 175.6444091796875, 132.24612426757812, 2),
+            new(44798, 175.6444091796875, 132.24612426757812, 0),
+            new(44815, 165.29376220703125, 136.30764770507812, 0),
+            new(44842, 162.13323974609375, 138.58457946777344, 1),
+            new(44945, 273.85675048828125, 173.29225158691406, 0),
+        ];
+        var circle = SimulationEngine.SimulateWhole(map, frames, 0, 30000019).Judgements[1];
+        Assert.Equal("300", circle.Result);
+        Assert.Equal("M1", circle.Key);
+        Assert.Equal(44842, circle.HitTime);
+        Assert.Equal(7, circle.HitError);
+    }
+
+    [Theory]
+    [InlineData(20260620)]
+    [InlineData(30000019)]
+    public void ReleasingInsideCircleDoesNotHitIt(int version)
+    {
+        var result = SimulationEngine.SimulateWhole(TestFixtures.BoundaryMap,
+            [new(900, 200, 100, 0), new(963, 200, 100, 2), new(990, 100, 100, 2),
+             new(1000, 100, 100, 0), new(1200, 100, 100, 0)], 0, version);
+        Assert.Equal("miss", result.Judgements[0].Result);
+        Assert.Null(result.Judgements[0].HitTime);
+    }
+
+    [Theory]
+    [InlineData(20260620)]
+    [InlineData(30000019)]
+    public void EarlyPressIsHitTimeEvenWhenReleasedAtCircleTime(int version)
+    {
+        var result = SimulationEngine.SimulateWhole(TestFixtures.BoundaryMap,
+            [new(900, 100, 100, 0), new(963, 100, 100, 2), new(1000, 100, 100, 0),
+             new(1200, 100, 100, 0)], 0, version);
+        Assert.Equal(963, result.Judgements[0].HitTime);
+        Assert.Equal(-37, result.Judgements[0].HitError);
+        Assert.Equal("M2", result.Judgements[0].Key);
+    }
+
+    [Theory]
+    [InlineData(true, "miss")]
+    [InlineData(false, "miss")]
+    public void ChocoooBurstCannotRescueAnEarlierCircleAfterHittingTheNext(bool laterPress, string expected)
+    {
+        const string map = """
+        osu file format v14
+        [General]
+        StackLeniency:0.2
+        [Difficulty]
+        CircleSize:4
+        OverallDifficulty:9.7
+        ApproachRate:9.9
+        [HitObjects]
+        101,330,68894,5,8,0:0:0:0:
+        85,334,68950,1,0,0:0:0:0:
+        """;
+        SimulationFrame[] frames = [
+            new(68885, 79.4073486328125, 289.7230224609375, 0),
+            new(68897, 62.9727783203125, 315.7537841796875, 2),
+            new(68938, 64.2369384765625, 337.53839111328125, 0),
+            new(68951, 66.13330078125, 339.261474609375, laterPress ? 1 : 0),
+            new(69100, 66.13330078125, 339.261474609375, 0),
+        ];
+        var result = SimulationEngine.SimulateWhole(map, frames, 0, 30000019);
+        var circle = result.Judgements[0];
+        Assert.Equal(expected, circle.Result);
+        Assert.Equal(101, circle.ObjectX);
+        Assert.Equal(330, circle.ObjectY);
+        Assert.Null(circle.HitTime);
+        Assert.Equal(68897, result.Judgements[1].HitTime);
+    }
+
+    [Fact]
+    public void LazerBlocksEarlyHitsAheadButAllowsLateHitsBeforeAdvancing()
+    {
+        const string map = "osu file format v14\n[Difficulty]\nCircleSize:4\nOverallDifficulty:5\n[HitObjects]\n100,100,1000,1,0,0:0:0:0:\n200,100,1050,1,0,0:0:0:0:\n";
+        var result = SimulationEngine.SimulateWhole(map,
+            [new(900, 200, 100, 0), new(990, 200, 100, 1), new(995, 100, 100, 0),
+             new(1020, 100, 100, 2), new(1025, 200, 100, 0), new(1050, 200, 100, 1), new(1300, 200, 100, 0)], 0, 30000019);
+        Assert.Equal(1020, result.Judgements[0].HitTime);
+        Assert.Equal(1050, result.Judgements[1].HitTime);
+    }
+
+    [Theory]
+    [InlineData(36.47, "300")]
+    [InlineData(36.49, "miss")]
+    [InlineData(41.48, "miss")]
+    public void Cs4CircleUsesItsActualRadius(double distance, string expected)
+    {
+        var result = SimulationEngine.SimulateWhole(TestFixtures.BoundaryMap,
+            [new(900, 100 + distance, 100, 0), new(1000, 100 + distance, 100, 1), new(1200, 100 + distance, 100, 0)], 0);
+        Assert.Equal(expected, result.Judgements[0].Result);
+    }
+
+    [Fact]
+    public void Cs4StackCanHitFivePixelsOutsideTheUnstackedDrawing()
+    {
+        var map = TestFixtures.BoundaryMap + "100,100,1100,1,0,0:0:0:0:\n";
+        var coordinate = 100 - (36.48 + 5) / Math.Sqrt(2);
+        var result = SimulationEngine.SimulateWhole(map,
+            [new(900, coordinate, coordinate, 0), new(1000, coordinate, coordinate, 1), new(1001, coordinate, coordinate, 0)], 0);
+        Assert.Equal("300", result.Judgements[0].Result);
+    }
+
+    [Fact]
     public void BasicJudgementsAndSelectedArea()
     {
         const string map = """

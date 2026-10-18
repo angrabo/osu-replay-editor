@@ -11,6 +11,7 @@ import {
   updateLogicalButtonOrder,
 } from './renderMath';
 import { replayPointAt } from './replay';
+import { advancePlaybackClock } from './playbackClock';
 import { speedColor } from './speed';
 import {
   analyseSlider,
@@ -144,6 +145,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     cursorSize: 100,
     showGrid: true,
     compactMode: false,
+    hideSkinCursor: false,
     wireframeGameplay: false,
     fadeAfterClick: false,
     showHitJudgements: false,
@@ -158,6 +160,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     highlightedObjectIndex: null,
   };
   private timeMs = 0;
+  private previousAudioTimeMs: number | null = null;
   private rate = 1;
   private volume = 100;
   private panX = 0;
@@ -362,6 +365,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     const duration = Math.max(this.beatmap?.durationMs ?? 0, this.replay?.frames.at(-1)?.timeMs ?? 0);
     const earliest = Math.min(0, this.replay?.frames[0]?.timeMs ?? 0, this.beatmap?.hitObjects[0]?.startTime ?? 0);
     this.timeMs = clamp(timeMs, earliest, duration);
+    this.previousAudioTimeMs = null;
     if (this.audio && this.timeMs < 0) {
       this.audio.pause();
       this.audio.currentTime = 0;
@@ -452,8 +456,12 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
 
   private tick(deltaMs: number) {
     if (!this.playing || !this.beatmap) return;
-    if (this.audio && !this.audio.paused) this.timeMs = this.audio.currentTime * 1000;
-    else {
+    if (this.audio && !this.audio.paused) {
+      const audioTimeMs = this.audio.currentTime * 1000;
+      this.timeMs = advancePlaybackClock(this.timeMs, deltaMs, this.rate, audioTimeMs, this.previousAudioTimeMs);
+      this.previousAudioTimeMs = audioTimeMs;
+    } else {
+      this.previousAudioTimeMs = null;
       this.timeMs += Math.min(100, deltaMs) * this.rate;
       if (this.audio && this.timeMs >= 0 && this.audio.paused && this.audible()) {
         this.audio.playbackRate = this.rate;
@@ -1390,6 +1398,7 @@ export class PixiBeatmapViewer implements BeatmapViewerAdapter {
     }
     drawSelectedRange();
     const cursorScale = clamp(this.options.cursorSize ?? 100, 50, 200) / 100;
+    if (this.options.hideSkinCursor) return;
     if (this.drawSkinCursor(point.x, point.y, cursorScale)) return;
     this.cursor
       .circle(point.x, point.y, 10 * cursorScale)

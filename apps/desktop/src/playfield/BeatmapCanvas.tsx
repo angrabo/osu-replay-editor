@@ -92,6 +92,8 @@ export function BeatmapCanvas({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<BeatmapViewerAdapter | null>(null);
+  const publishedTimeRef = useRef<number | null>(null);
+  const panMovedRef = useRef(false);
   const panRef = useRef({ x: 0, y: 0 });
   const panDragRef = useRef<{ pointerId: number; x: number; y: number; startX: number; startY: number } | null>(null);
   const nodeDragRef = useRef<{
@@ -161,6 +163,7 @@ export function BeatmapCanvas({
   const hideCollectedTicks = useEditorStore((state) => state.hideCollectedTicks);
   const snakingSliders = useEditorStore((state) => state.snakingSliders);
   const snakingOutSliders = useEditorStore((state) => state.snakingOutSliders);
+  const hideSkinCursor = useEditorStore((state) => state.hideSkinCursor);
   const wireframeGameplay = useEditorStore((state) => state.wireframeGameplay);
   const fadeAfterClick = useEditorStore((state) => state.fadeAfterClick);
   const showHitJudgements = useEditorStore((state) => state.showHitJudgements);
@@ -343,7 +346,10 @@ export function BeatmapCanvas({
           );
         },
         onTimeChange: (timeMs) => {
-          if (clock) useEditorStore.getState().setPlayhead(timeMs);
+          if (clock) {
+            useEditorStore.getState().setPlayhead(timeMs);
+            publishedTimeRef.current = useEditorStore.getState().playheadMs;
+          }
         },
         onEnded: () => {
           if (clock) useEditorStore.getState().setPlaying(false);
@@ -392,6 +398,7 @@ export function BeatmapCanvas({
         hideCollectedTicks: settings.hideCollectedTicks,
         snakingSliders: settings.snakingSliders,
         snakingOutSliders: settings.snakingOutSliders,
+        hideSkinCursor: settings.hideSkinCursor,
         wireframeGameplay: settings.wireframeGameplay,
         fadeAfterClick: settings.fadeAfterClick,
         showHitJudgements: settings.showHitJudgements,
@@ -569,6 +576,7 @@ export function BeatmapCanvas({
         hideCollectedTicks,
         snakingSliders,
         snakingOutSliders,
+        hideSkinCursor,
         wireframeGameplay,
         fadeAfterClick,
         showHitJudgements,
@@ -589,6 +597,7 @@ export function BeatmapCanvas({
     hideCollectedTicks,
     snakingSliders,
     snakingOutSliders,
+    hideSkinCursor,
     wireframeGameplay,
     fadeAfterClick,
     showHitJudgements,
@@ -625,8 +634,8 @@ export function BeatmapCanvas({
     );
   }, [ready, simulation, original, previewTrack?.edited]);
   useEffect(() => {
-    if (ready) viewerRef.current?.seek(playhead);
-  }, [playhead, ready]);
+    if (ready && (!clock || playhead !== publishedTimeRef.current)) viewerRef.current?.seek(playhead);
+  }, [playhead, ready, clock]);
   useEffect(() => {
     const host = hostRef.current;
     const cursorPointer = nodeDragRef.current?.pointerId;
@@ -820,7 +829,22 @@ export function BeatmapCanvas({
         if (!interactive) return;
         if ((event.target as HTMLElement).closest('.cursor-node-menu')) return;
         setNodeMenu(null);
-        if (event.button !== 0 || (event.target as HTMLElement).closest('.playfield-zoom')) return;
+        if ((event.target as HTMLElement).closest('.playfield-zoom')) return;
+        panMovedRef.current = false;
+        if (event.button === 2) {
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          event.currentTarget.classList.add('panning');
+          panDragRef.current = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            startX: panRef.current.x,
+            startY: panRef.current.y,
+          };
+          return;
+        }
+        if (event.button !== 0) return;
         if (tool === 'draw') {
           if (!previewTrack || previewTrack.locked || !selectedTimeRange) {
             if (previewTrack) drawCursorPath(previewTrack.id, []);
@@ -882,17 +906,6 @@ export function BeatmapCanvas({
           setPlayfieldZoom(playfieldZoom + (event.shiftKey ? -0.1 : 0.1));
           return;
         }
-        if (tool !== 'hand') return;
-        event.preventDefault();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        event.currentTarget.classList.add('panning');
-        panDragRef.current = {
-          pointerId: event.pointerId,
-          x: event.clientX,
-          y: event.clientY,
-          startX: panRef.current.x,
-          startY: panRef.current.y,
-        };
       }}
       onDoubleClick={(event) => {
         if (!interactive) return;
@@ -1011,6 +1024,7 @@ export function BeatmapCanvas({
         }
         if (!drag || drag.pointerId !== event.pointerId) return;
         const requested = { x: drag.startX + event.clientX - drag.x, y: drag.startY + event.clientY - drag.y };
+        if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) >= 4) panMovedRef.current = true;
         panRef.current = viewerRef.current?.setPan(requested.x, requested.y) ?? requested;
         setPan({ ...panRef.current });
       }}
@@ -1153,6 +1167,7 @@ export function BeatmapCanvas({
               onContextMenu={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
+                if (panMovedRef.current) return;
                 selectCursorFrame(frame.timeMs);
                 const box = hostRef.current?.getBoundingClientRect();
                 if (!box) return;

@@ -92,6 +92,7 @@ export type ViewerOptions = {
   cursorSize: number;
   showGrid: boolean;
   compactMode: boolean;
+  hideSkinCursor: boolean;
   wireframeGameplay: boolean;
   fadeAfterClick: boolean;
   showHitJudgements: boolean;

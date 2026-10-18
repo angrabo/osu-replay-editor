@@ -149,6 +149,9 @@ public static class SimulationEngine
 
         var (hitWindow300, hitWindow100, hitWindow50) = HitWindows(map.Od, rate);
         var radius = Math.Max(12, 54.4 - 4.48 * map.Cs);
+        var lazerHeads = isLazer
+            ? AssignLazerHeads(map.Objects, presses, frames, radius, hitWindow50, lazerInclusiveLateHitWindows, cancellationToken)
+            : null;
         var maximumCombo = map.Objects.Sum(item => item.Kind == "slider" ? SliderJudge.PartCount(item, rate, map.SliderTickRate) : 1);
 
         var combo = 0;
@@ -215,6 +218,7 @@ public static class SimulationEngine
             long objectBonus = 0;
             var distance = double.PositiveInfinity;
             var inside = false;
+            var headMissTime = lazerHeads?.MissTimes[objectIndex] ?? start + hitWindow50;
 
             if (item.Kind == "spinner")
             {
@@ -237,15 +241,17 @@ public static class SimulationEngine
             }
             else
             {
-                var candidates = FindHitCandidates(presses, used, frames, item, start, radius, hitWindow50, isLazer,
-                    lazerInclusiveLateHitWindows, stableNotelockUntil);
+                var candidates = lazerHeads is null
+                    ? FindHitCandidates(presses, used, frames, item, start, radius, hitWindow50, isLazer,
+                        lazerInclusiveLateHitWindows, stableNotelockUntil)
+                    : lazerHeads.Hits[objectIndex] is { } hit ? [hit] : [];
                 if (candidates.Length == 0)
                 {
                     (result, value) = ("miss", 0);
                     stableObjectUnlockTime = start + hitWindow50;
                     if (item.Kind == "slider")
                         sliderParts = SliderJudge.Parts(frames, item, rate, map.SliderTickRate, radius * 2.4, false, isLazer,
-                            headMissJudgedAt: start + hitWindow50);
+                            headMissJudgedAt: headMissTime);
                 }
                 else
                 {
@@ -291,7 +297,7 @@ public static class SimulationEngine
             }
 
             // Circles/slider heads are judged when hit, or as a miss once their hit window closes.
-            var judgedAt = item.Kind == "spinner" ? end : hitTime ?? start + hitWindow50;
+            var judgedAt = item.Kind == "spinner" ? end : hitTime ?? headMissTime;
             var judged = judgedAt <= judgedUntil;
             if (isLazer)
                 RecordLazerObjectEvents(lazerScoreEvents, item, sliderParts, objectIndex, start, value, judged, judgedUntil,
@@ -380,6 +386,50 @@ public static class SimulationEngine
         // Rounding these values up changes borderline stable judgements (for
         // example OD 9.4 has a 23 ms GREAT window, not 24 ms).
         return (Math.Floor(hitWindow300), Math.Floor(hitWindow100), Math.Floor(hitWindow50));
+    }
+
+    private sealed record LazerHeadAssignments(
+        (Press press, int index, double distance)?[] Hits, double?[] MissTimes);
+
+    private static LazerHeadAssignments AssignLazerHeads(MapObject[] objects, Press[] presses,
+        IReadOnlyList<SimulationFrame> frames, double radius, double hitWindow50, bool inclusiveLate,
+        CancellationToken cancellationToken)
+    {
+        var hits = new (Press press, int index, double distance)?[objects.Length];
+        var misses = new double?[objects.Length];
+        var events = new List<(int ObjectIndex, Press press, int index, double distance)>();
+        var unused = new HashSet<int>();
+        for (var i = 0; i < objects.Length; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (objects[i].Kind == "spinner") continue;
+            foreach (var candidate in FindHitCandidates(presses, unused, frames, objects[i], objects[i].Start,
+                radius, hitWindow50, true, inclusiveLate, double.NegativeInfinity))
+                events.Add((i, candidate.press, candidate.index, candidate.distance));
+        }
+        var consumedPress = -1;
+        foreach (var candidate in events.OrderBy(item => item.index).ThenBy(item => item.ObjectIndex))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var i = candidate.ObjectIndex;
+            if (candidate.index == consumedPress || hits[i] is not null || misses[i] is not null) continue;
+            // A hovered circle consumes the press even when lazer's start-time notelock shakes it.
+            consumedPress = candidate.index;
+            var previous = i - 1;
+            while (previous >= 0 && (objects[previous].Kind == "spinner" || objects[previous].Start >= objects[i].Start))
+                previous--;
+            if (previous >= 0 && hits[previous] is null && misses[previous] is null && candidate.press.Time < objects[previous].Start)
+                continue;
+            hits[i] = (candidate.press, candidate.index, candidate.distance);
+            // osu!lazer StartTimeOrderedHitPolicy: hitting ahead misses earlier unjudged heads.
+            for (var earlier = i - 1; earlier >= 0; earlier--)
+            {
+                if (objects[earlier].Kind == "spinner" || objects[earlier].Start >= objects[i].Start) continue;
+                if (hits[earlier] is not null || misses[earlier] is not null) continue;
+                misses[earlier] = Math.Min(candidate.press.Time, objects[earlier].Start + hitWindow50);
+            }
+        }
+        return new LazerHeadAssignments(hits, misses);
     }
 
     private static (Press press, int index, double distance)[] FindHitCandidates(Press[] presses, HashSet<int> used,

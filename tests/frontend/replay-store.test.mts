@@ -53,6 +53,49 @@ describe('magneticDragWeights', () => {
 });
 
 describe('editReplayInput and replayInputIntervals', () => {
+  test('zero-duration taps are listed and removable without changing adjacent holds or cursor frames', () => {
+    const replay = editReplayInput({ filename: 'instant.osr', sourceBytes: new Uint8Array(), metadata,
+      frames: [[0, 0], [10, 2], [20, 0], [20, 2], [20, 0], [20, 2], [30, 0]]
+        .map(([timeMs, keys]) => ({ timeMs, deltaMs: 0, x: 100 + timeMs, y: 200, keys })), keyEvents: [],
+    }, null, null);
+    const intervals = replayInputIntervals('edit', replay);
+    assert.deepEqual(intervals.map(input => [input.startTime, input.endTime]), [[10, 20], [20, 20], [20, 30]]);
+    const edited = editReplayInput(replay, intervals[1], null);
+    assert.deepEqual(replayInputIntervals('edit', edited).map(input => [input.startTime, input.endTime]), [[10, 20], [20, 30]]);
+    assert.deepEqual(edited.frames.map(({ timeMs, x, y }) => ({ timeMs, x, y })), replay.frames.map(({ timeMs, x, y }) => ({ timeMs, x, y })));
+    assert.deepEqual(edited.frames.map(frame => frame.keys), [0, 2, 0, 0, 0, 2, 0]);
+  });
+
+  const duplicateRelease = {
+    filename: 'zetsu-release.osr', sourceBytes: new Uint8Array(), metadata,
+    frames: [[44702, 0], [44713, 2], [44798, 2], [44798, 0], [44842, 1], [44945, 0]]
+      .map(([timeMs, keys], index, all) => ({ timeMs, deltaMs: index ? timeMs - all[index - 1][0] : timeMs, x: 175, y: 132, keys })),
+    keyEvents: [],
+  };
+  const originalHold = { trackId: 'edit', key: 'M2' as const, startTime: 44713, endTime: 44798 };
+
+  test('shortening, moving or deleting a hold leaves no phantom press at its duplicate-timestamp release', () => {
+    for (const next of [null, { ...originalHold, endTime: 44780 }, { ...originalHold, startTime: 44600, endTime: 44680 }]) {
+      const edited = editReplayInput(duplicateRelease, originalHold, next);
+      assert.deepEqual(edited.keyEvents.filter(event => event.key === 'M2'), next ? [
+        { timeMs: next.startTime, key: 'M2', down: true },
+        { timeMs: next.endTime, key: 'M2', down: false },
+      ] : []);
+      assert.deepEqual(edited.keyEvents.filter(event => event.key === 'M1'), [
+        { timeMs: 44842, key: 'M1', down: true }, { timeMs: 44945, key: 'M1', down: false },
+      ]);
+    }
+  });
+
+  test('clearing a hold preserves a separate press after its release at the same timestamp', () => {
+    const frames = duplicateRelease.frames.map(frame => ({ ...frame }));
+    frames.splice(4, 0, { ...frames[3], keys: 2 });
+    const edited = editReplayInput({ ...duplicateRelease, frames }, originalHold, null);
+    assert.deepEqual(edited.keyEvents.filter(event => event.key === 'M2'), [
+      { timeMs: 44798, key: 'M2', down: true }, { timeMs: 44842, key: 'M2', down: false },
+    ]);
+  });
+
   const editable = { filename: 'edit.osr', sourceBytes: new Uint8Array([9, 8, 7]), metadata,
     frames: [0, 17, 34].map((timeMs, index) => ({ timeMs, deltaMs: index ? 17 : 0, x: 100 + timeMs, y: 200, keys: 0 })), keyEvents: [] };
   const inserted = editReplayInput(editable, null, { trackId: 'edit', key: 'M1', startTime: 10, endTime: 27 });
@@ -519,21 +562,21 @@ describe('persisted preferences', () => {
     useEditorStore.getState().setBackgroundDim(35);
     useEditorStore.getState().setShowGrid(false);
     useEditorStore.getState().setCompactMode(true);
-    for (const filter of ['wireframeGameplay', 'fadeAfterClick', 'showHitJudgements', 'showHiddenFade'] as const)
+    for (const filter of ['hideSkinCursor', 'wireframeGameplay', 'fadeAfterClick', 'showHitJudgements', 'showHiddenFade'] as const)
       useEditorStore.getState().setGameplayFilter(filter, true);
     useEditorStore.getState().setPlayfieldZoom(1.7);
     useEditorStore.getState().setCursorTrailMs(650);
-    assert.deepEqual(readPlayfieldPreferences(), { showBackground: false, backgroundDim: 35, cursorSize: 100, showGrid: false, compactMode: true, wireframeGameplay: true, fadeAfterClick: true, showHitJudgements: true, showHiddenFade: true, showSliderEndWindows: false, showSliderTracking: true, playfieldZoom: 1.7, cursorTrailMs: 650 });
+    assert.deepEqual(readPlayfieldPreferences(), { showBackground: false, backgroundDim: 35, cursorSize: 100, showGrid: false, compactMode: true, hideSkinCursor: true, wireframeGameplay: true, fadeAfterClick: true, showHitJudgements: true, showHiddenFade: true, showSliderEndWindows: false, showSliderTracking: true, playfieldZoom: 1.7, cursorTrailMs: 650 });
 
     useEditorStore.getState().setShowBackground(true);
     useEditorStore.getState().setBackgroundDim(120);
     useEditorStore.getState().setShowGrid(true);
     useEditorStore.getState().setCompactMode(false);
-    for (const filter of ['wireframeGameplay', 'fadeAfterClick', 'showHitJudgements', 'showHiddenFade'] as const)
+    for (const filter of ['hideSkinCursor', 'wireframeGameplay', 'fadeAfterClick', 'showHitJudgements', 'showHiddenFade'] as const)
       useEditorStore.getState().setGameplayFilter(filter, false);
     useEditorStore.getState().setPlayfieldZoom(1);
     useEditorStore.getState().setCursorTrailMs(220);
-    assert.deepEqual(readPlayfieldPreferences(), { showBackground: true, backgroundDim: 100, cursorSize: 100, showGrid: true, compactMode: false, wireframeGameplay: false, fadeAfterClick: false, showHitJudgements: false, showHiddenFade: false, showSliderEndWindows: false, showSliderTracking: true, playfieldZoom: 1, cursorTrailMs: 220 });
+    assert.deepEqual(readPlayfieldPreferences(), { showBackground: true, backgroundDim: 100, cursorSize: 100, showGrid: true, compactMode: false, hideSkinCursor: false, wireframeGameplay: false, fadeAfterClick: false, showHitJudgements: false, showHiddenFade: false, showSliderEndWindows: false, showSliderTracking: true, playfieldZoom: 1, cursorTrailMs: 220 });
   });
 
   test('timeline wheel mode/step is persisted to localStorage', () => {
