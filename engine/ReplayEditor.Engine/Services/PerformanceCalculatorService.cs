@@ -238,6 +238,7 @@ public sealed partial class PerformanceCalculatorService(OsuService osu)
         return client;
     }
 
-    [GeneratedRegex(@"^\d+\.\d+\.\d+$")]
+    // A release (1.2.3) or a beta (1.2.3-beta.4); each publishes its own calculator.
+    [GeneratedRegex(@"^\d+\.\d+\.\d+(-beta\.\d+)?$")]
     private static partial Regex VersionPattern();
 }
