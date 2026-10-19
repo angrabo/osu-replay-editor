@@ -164,11 +164,18 @@ export function SettingsDialog({
   onCheckForUpdates,
   updateCheckResult,
   onOpenChangelog,
+  availableUpdate,
+  updateInstalling,
+  onInstallUpdate,
 }: {
   onClose: () => void;
   onCheckForUpdates: () => void;
   updateCheckResult: UpdateCheckResult;
   onOpenChangelog: () => void;
+  // The version the chosen channel offers, if it differs from this one.
+  availableUpdate: string | null;
+  updateInstalling: boolean;
+  onInstallUpdate: () => void;
 }) {
   const [settings, setSettings] = useState<AccountSettings | null>(null);
   const [remember, setRemember] = useState(true);
@@ -333,7 +340,7 @@ export function SettingsDialog({
                       </SettingRow>
                       <SettingRow
                         title="Release channel"
-                        info="Stable gets tested releases only. Beta gets experimental builds as soon as they are out, and every stable release newer than the last beta. Switching from beta back to stable keeps the beta until a newer stable release arrives."
+                        info="Stable gets tested releases only. Beta gets experimental builds as soon as they are out, and every stable release newer than the last beta. Switching a beta back to stable installs the current stable release; projects saved in the beta may not open in it."
                       >
                         <select
                           aria-label="Release channel"
@@ -343,6 +350,11 @@ export function SettingsDialog({
                           <option value="stable">Stable</option>
                           <option value="beta">Beta (experimental)</option>
                         </select>
+                        {availableUpdate && (
+                          <button className="primary-button" disabled={updateInstalling} onClick={onInstallUpdate}>
+                            {updateInstalling ? 'Updating…' : `Update to ${availableUpdate}`}
+                          </button>
+                        )}
                       </SettingRow>
                       <SettingRow
                         title="Simulate after editing"

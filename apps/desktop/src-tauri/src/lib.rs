@@ -131,12 +131,18 @@ async fn check_update(
     app: tauri::AppHandle,
     pending: tauri::State<'_, PendingUpdate>,
     channel: String,
+    allow_downgrade: Option<bool>,
 ) -> Result<Option<UpdateInfo>, String> {
     use tauri_plugin_updater::UpdaterExt;
     let manifest = if channel == "beta" { BETA_MANIFEST } else { STABLE_MANIFEST };
     let url = tauri::Url::parse(manifest).map_err(|error| error.to_string())?;
-    let update = app
-        .updater_builder()
+    let mut builder = app.updater_builder();
+    // A beta switched back to stable: the channel's current build is offered even when its
+    // number is lower than the installed beta's.
+    if allow_downgrade.unwrap_or(false) {
+        builder = builder.version_comparator(|current, remote| remote.version != current);
+    }
+    let update = builder
         .endpoints(vec![url])
         .and_then(|builder| builder.build())
         .map_err(|error| error.to_string())?

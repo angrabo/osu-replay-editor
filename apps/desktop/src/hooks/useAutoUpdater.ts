@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { UPDATER_ENABLED } from '../appMeta';
+import { APP_VERSION, UPDATER_ENABLED } from '../appMeta';
 import { useUpdateChannelStore } from '../stores/updateChannel';
 
 export type PendingUpdate = { version: string; body: string | null };
@@ -34,8 +34,12 @@ export function useAutoUpdater() {
     void (async () => {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
+        const channel = useUpdateChannelStore.getState().channel;
         const update = await invoke<PendingUpdate | null>('check_update', {
-          channel: useUpdateChannelStore.getState().channel,
+          channel,
+          // A beta switched to stable goes back to the current stable build, even though its
+          // number is lower.
+          allowDowngrade: channel === 'stable' && APP_VERSION.includes('-'),
         });
         setPendingUpdate(update ? { version: update.version, body: update.body ?? null } : null);
         setCheckResult(update ? 'idle' : 'up-to-date');

@@ -442,10 +442,14 @@ export default function App() {
           onCheckForUpdates={checkNow}
           updateCheckResult={checkResult}
           onOpenChangelog={() => setChangelogOpen(true)}
+          availableUpdate={pendingUpdate?.version ?? null}
+          updateInstalling={installing}
+          onInstallUpdate={install}
         />
       )}
       {changelogOpen && <ChangelogDialog onClose={() => setChangelogOpen(false)} />}
-      {pendingUpdate && (
+      {/* While Settings is open its Update button offers the update; the dialog then only shows the install. */}
+      {pendingUpdate && (!settingsOpen || installing || !!installError) && (
         <UpdateDialog
           update={pendingUpdate}
           installing={installing}
