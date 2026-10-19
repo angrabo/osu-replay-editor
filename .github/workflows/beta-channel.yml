@@ -1,0 +1,71 @@
+name: beta-channel
+
+# The beta channel's update manifest (beta.json on the fixed `beta` release) always names the
+# newest published build, beta or stable: whenever a release is published, its latest.json
+# replaces beta.json if it is newer. Stable installs read the latest full release's latest.json
+# and never see betas, because GitHub's "latest" release skips prereleases.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Published release tag to offer on the beta channel (for example v0.7.0-beta.1)'
+        required: true
+        type: string
+
+concurrency:
+  group: beta-channel
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+    steps:
+      - name: Point beta.json at this release if it is newer
+        shell: pwsh
+        run: |
+          if ($env:TAG -notmatch '^v\d+\.\d+\.\d+(-beta\.\d+)?$') {
+            Write-Host "$env:TAG is not a build release; nothing to do."
+            exit 0
+          }
+          $work = Join-Path $env:RUNNER_TEMP 'beta-channel'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+
+          gh release download $env:TAG --repo $env:REPO --pattern latest.json --dir $work --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Release $env:TAG has no latest.json" }
+          $candidate = Get-Content -LiteralPath (Join-Path $work 'latest.json') -Raw | ConvertFrom-Json
+          $newVersion = [System.Management.Automation.SemanticVersion]::Parse($candidate.version)
+
+          gh release view beta --repo $env:REPO *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create beta --repo $env:REPO --prerelease --title 'Beta channel' `
+              --notes 'Holds the beta channel update manifest. Download builds from the versioned releases.'
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create the beta release' }
+          }
+
+          $current = Join-Path $work 'current'
+          New-Item -ItemType Directory -Force -Path $current | Out-Null
+          gh release download beta --repo $env:REPO --pattern beta.json --dir $current --clobber 2>$null
+          $currentPath = Join-Path $current 'beta.json'
+          if (Test-Path -LiteralPath $currentPath) {
+            $currentVersion = [System.Management.Automation.SemanticVersion]::Parse(
+              (Get-Content -LiteralPath $currentPath -Raw | ConvertFrom-Json).version)
+            if ($newVersion -le $currentVersion) {
+              Write-Host "Beta channel already offers $currentVersion; $newVersion is not newer."
+              exit 0
+            }
+          }
+
+          $out = Join-Path $work 'beta.json'
+          Copy-Item -LiteralPath (Join-Path $work 'latest.json') -Destination $out
+          gh release upload beta $out --clobber --repo $env:REPO
+          if ($LASTEXITCODE -ne 0) { throw 'Could not upload beta.json' }
+          Write-Host "Beta channel now offers $newVersion."
+          $global:LASTEXITCODE = 0

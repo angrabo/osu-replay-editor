@@ -25,6 +25,7 @@ import { PerformanceSettings } from './components/settings/PerformanceSettings';
 import { InfoTip } from './components/InfoTip';
 import { clearRecentFiles, readRecentFiles } from './recentFiles';
 import { AUTOSAVE_INTERVALS, useAutosaveStore } from './stores/autosave';
+import { useUpdateChannelStore, type UpdateChannel } from './stores/updateChannel';
 import { MAX_EDIT_SIMULATION_DELAY_MS, useSimulationPrefsStore } from './stores/simulationPrefs';
 
 type AccountSettings = { rememberSession: boolean; storageDirectory: string };
@@ -53,7 +54,7 @@ const categories: Category[] = [
     id: 'general',
     label: 'General',
     icon: <Settings2 size={17} />,
-    keywords: 'startup language updates restore project simulation delay',
+    keywords: 'startup language updates beta stable channel release restore project simulation delay',
     items: [
       {
         title: 'Performance points (pp)',
@@ -64,6 +65,7 @@ const categories: Category[] = [
         description: 'How long the editor waits after your last edit before it simulates the replay again.',
       },
       { title: 'Updates', description: 'Check GitHub for a newer signed build.' },
+      { title: 'Release channel', description: 'Stable releases only, or beta builds as well.' },
       { title: 'Changelog', description: 'What changed in this and past versions.' },
     ],
   },
@@ -164,6 +166,8 @@ export function SettingsDialog({
   const [active, setActive] = useState<CategoryId>('general');
   const editDelayMs = useSimulationPrefsStore((state) => state.editDelayMs);
   const setEditDelayMs = useSimulationPrefsStore((state) => state.setEditDelayMs);
+  const updateChannel = useUpdateChannelStore((state) => state.channel);
+  const setUpdateChannel = useUpdateChannelStore((state) => state.setChannel);
   const autosaveEnabled = useAutosaveStore((state) => state.enabled);
   const autosaveMinutes = useAutosaveStore((state) => state.minutes);
   const setAutosaveEnabled = useAutosaveStore((state) => state.setEnabled);
@@ -313,6 +317,19 @@ export function SettingsDialog({
                         >
                           Check for updates
                         </button>
+                      </SettingRow>
+                      <SettingRow
+                        title="Release channel"
+                        info="Stable gets tested releases only. Beta gets experimental builds as soon as they are out, and every stable release newer than the last beta. Switching from beta back to stable keeps the beta until a newer stable release arrives."
+                      >
+                        <select
+                          aria-label="Release channel"
+                          value={updateChannel}
+                          onChange={(event) => setUpdateChannel(event.target.value as UpdateChannel)}
+                        >
+                          <option value="stable">Stable</option>
+                          <option value="beta">Beta (experimental)</option>
+                        </select>
                       </SettingRow>
                       <SettingRow
                         title="Simulate after editing"
