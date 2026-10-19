@@ -4,8 +4,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    throw "Version must be like 1.2.3, got '$Version'."
+if ($Version -notmatch '^\d+\.\d+\.\d+(-beta\.\d+)?$') {
+    throw "Version must be like 1.2.3, or 1.2.3-beta.1 for a beta, got '$Version'."
 }
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -17,7 +17,7 @@ if ((git status --porcelain) -and -not $Push) {
 
 function Set-JsonVersion([string]$Path) {
     $text = Get-Content -LiteralPath $Path -Raw
-    $pattern = '"version":\s*"\d+\.\d+\.\d+"'
+    $pattern = '"version":\s*"\d+\.\d+\.\d+(-beta\.\d+)?"'
     if (-not ([regex]::IsMatch($text, $pattern))) { throw "No version field found in $Path" }
     $updated = [regex]::Replace($text, $pattern, "`"version`": `"$Version`"")
     Set-Content -LiteralPath $Path -Value $updated -NoNewline
