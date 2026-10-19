@@ -95,6 +95,94 @@ fn write_project_file(path: String, contents: String) -> Result<(), String> {
     })
 }
 
+/// <summary>
+/// Release channels: stable reads the newest full release's manifest; beta reads one kept on the
+/// fixed `beta` release, which every beta build and every newer stable build rewrites, so a beta
+/// install always gets the newest version of either.
+/// </summary>
+const STABLE_MANIFEST: &str =
+    "https://github.com/angrabo/osu-replay-editor/releases/latest/download/latest.json";
+const BETA_MANIFEST: &str =
+    "https://github.com/angrabo/osu-replay-editor/releases/download/beta/beta.json";
+
+/// The update found by the last check, waiting for the user to install it.
+struct PendingUpdate(Mutex<Option<tauri_plugin_updater::Update>>);
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateInfo {
+    version: String,
+    body: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "event", content = "data", rename_all = "camelCase")]
+enum UpdateEvent {
+    #[serde(rename_all = "camelCase")]
+    Progress { downloaded: u64, total: Option<u64> },
+    Installing,
+}
+
+/// <summary>
+/// Checks the chosen channel's manifest for a newer signed build and keeps it for install_update.
+/// </summary>
+#[tauri::command]
+async fn check_update(
+    app: tauri::AppHandle,
+    pending: tauri::State<'_, PendingUpdate>,
+    channel: String,
+) -> Result<Option<UpdateInfo>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let manifest = if channel == "beta" { BETA_MANIFEST } else { STABLE_MANIFEST };
+    let url = tauri::Url::parse(manifest).map_err(|error| error.to_string())?;
+    let update = app
+        .updater_builder()
+        .endpoints(vec![url])
+        .and_then(|builder| builder.build())
+        .map_err(|error| error.to_string())?
+        .check()
+        .await
+        .map_err(|error| error.to_string())?;
+    let info = update.as_ref().map(|update| UpdateInfo {
+        version: update.version.clone(),
+        body: update.body.clone(),
+    });
+    *pending.0.lock().expect("pending update lock poisoned") = update;
+    Ok(info)
+}
+
+/// <summary>
+/// Downloads and verifies the pending update, stops the sidecar (the installer could not replace
+/// its executable while it runs) and installs. The caller relaunches the app afterwards.
+/// </summary>
+#[tauri::command]
+async fn install_update(
+    pending: tauri::State<'_, PendingUpdate>,
+    sidecar: tauri::State<'_, SidecarState>,
+    on_event: tauri::ipc::Channel<UpdateEvent>,
+) -> Result<(), String> {
+    let update = pending
+        .0
+        .lock()
+        .expect("pending update lock poisoned")
+        .take()
+        .ok_or("No update is waiting to be installed.")?;
+    let mut downloaded = 0u64;
+    let bytes = update
+        .download(
+            |chunk, total| {
+                downloaded += chunk as u64;
+                let _ = on_event.send(UpdateEvent::Progress { downloaded, total });
+            },
+            || {},
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    let _ = on_event.send(UpdateEvent::Installing);
+    stop_sidecar_for_update(sidecar);
+    update.install(bytes).map_err(|error| error.to_string())
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateDiagnosis {
@@ -239,11 +327,14 @@ pub fn run() {
                 stopping: AtomicBool::new(false),
             });
             monitor_sidecar(app.handle().clone());
+            app.manage(PendingUpdate(Mutex::new(None)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             sidecar_connection,
             stop_sidecar_for_update,
+            check_update,
+            install_update,
             diagnose_update,
             read_user_file,
             write_project_file,
